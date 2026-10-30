@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+*.p12
+*.pfx
+ca.crt
+*.password
+edge.env
+.env
+*.mobileprovision

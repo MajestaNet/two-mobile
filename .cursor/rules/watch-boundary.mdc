@@ -1,0 +1,26 @@
+---
+description: Watch client boundary. Principal, host, and headers.
+alwaysApply: true
+---
+
+# Watch boundary
+
+This repo is two-mobile: the watch and its companion iPhone. It is not the development-loop GUI.
+
+- Talk only to `https://<enrolled-host>:8443`. Refuse loopback and port `8741`.
+- Principal is `client:watch`. Profiles are `chat`, `home-action`, or omitted. Never `self-build` or `operator`.
+- Never `POST /v1/tasks`. Never pause, resume, cancel, config, artifact content, or `tasks:message`.
+- Never set `X-Two-Edge-Token`, `X-Two-Client-Id`, or `Authorization`. The bearer slot stays empty.
+- Do not put `TWO_API_TOKEN`, `TWO_EDGE_TOKEN`, a PKCS#12, `ca.crt`, or a LAN address in source or git.
+- Pin the enrolled CA. Unknown trust challenges are cancelled. Client-certificate challenges use only the enrolled identity.
+
+```swift
+// ❌ BAD
+request.setValue(token, forHTTPHeaderField: "Authorization")
+url = URL(string: "https://127.0.0.1:8741")!
+
+// ✅ GOOD
+if let bearer = DeferredBearer.headerValue(), !bearer.isEmpty {
+    request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+}
+```

@@ -1,0 +1,27 @@
+---
+description: Approval, speech, and offline behavior for the watch client.
+alwaysApply: true
+---
+
+# Approval and speech
+
+- The digest on screen is the digest in the decide body. Show it as text. Do not use a text field.
+- A button is the decision. A notification tap, a scene change, and silence are not.
+- Disable decide when `approvals:decide` is missing, the app is inactive, or the mini is unreachable.
+- `409 stale_digest` reloads the task and stops. Do not send the old digest again.
+- Airplane mode and other unreachable errors show "The mini is unreachable." Do not persist a decide and do not flush one when the network returns.
+- Microphone and recognition run only while the finger is down and the watch app is foregrounded. `requiresOnDeviceRecognition` stays true.
+- If on-device recognition is unavailable, show that locale and do not start the microphone.
+- The request body is the transcript string. Do not upload audio, partial streams, or a recording file.
+- Do not speak `reply`. Do not log the transcript. Clear it when the operator leaves the talk screen.
+- A diff view shows file and line counts only. Drop `patch` even if the JSON contains one.
+
+```swift
+// ❌ BAD
+TextField("Digest", text: $digest)
+queue.append(decision)
+
+// ✅ GOOD
+Text(approval.actionDigest)
+try await api.decide(approval: approval, decision: decision)
+```

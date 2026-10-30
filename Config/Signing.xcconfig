@@ -1,0 +1,6 @@
+// Placeholder ids until the Apple Developer Program is on this Mac.
+// Replace them with the operator's ids. Do not commit a Development Team.
+// Simulator builds sign locally and do not request a provisioning profile.
+DEVELOPMENT_TEAM =
+TWO_PHONE_BUNDLE_ID = local.two.phone
+TWO_WATCH_BUNDLE_ID = local.two.watch
