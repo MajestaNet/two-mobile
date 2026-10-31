@@ -7,31 +7,22 @@ import TwoClient
 @MainActor
 final class PhoneModel: ObservableObject {
     @Published var session: WatchSession?
+    @Published var username = ""
     @Published var host = ""
-    @Published var port = "8443"
-    @Published var password = ""
     @Published var status = ""
-    @Published var certificateChosen = false
-    @Published var enrollmentChosen = false
+    @Published var banner = ""
+    @Published var bannerVisible = false
+    @Published var authenticating = false
+    @Published var discoveryFailed = false
 
-    private var certificate: Data?
-    private var pkcs12: Data?
     private var accessGroup = AccessGroup.resolved()
+    private var fadeTask: Task<Void, Never>?
 
     var groupReady: Bool { accessGroup != nil }
+    var showsGlobe: Bool { session != nil && session?.needsEnrollment != true }
 
     init() {
         bootstrap()
-    }
-
-    func storeCertificate(_ data: Data) {
-        certificate = data
-        certificateChosen = true
-    }
-
-    func storeEnrollmentFile(_ data: Data) {
-        pkcs12 = data
-        enrollmentChosen = true
     }
 
     func bootstrap() {
@@ -42,11 +33,12 @@ final class PhoneModel: ObservableObject {
         }
         do {
             guard let enrollment = try WatchKeychain.loadEnrollment(accessGroup: accessGroup) else {
+                Task { await discoverHost() }
                 return
             }
             host = enrollment.endpoint.host
-            port = String(enrollment.endpoint.port)
             session = WatchSession(api: liveAPI(enrollment.endpoint, enrollment.pinnedCertificate, accessGroup))
+            Task { await checkExisting() }
         } catch let error as KeychainError {
             status = error.screenText
         } catch {
@@ -59,32 +51,46 @@ final class PhoneModel: ObservableObject {
             status = "Select a Development Team so the keychain access group can be signed."
             return
         }
-        guard let certificate, let pkcs12 else {
-            status = "Choose the CA and the enrollment file."
-            return
-        }
-        let secret = password
-        password = ""
-        let certificateCopy = certificate
-        let pkcsCopy = pkcs12
-        self.certificate = nil
-        self.pkcs12 = nil
-        certificateChosen = false
-        enrollmentChosen = false
+        authenticating = true
+        defer { authenticating = false }
         do {
-            let endpoint = try EdgeEndpoint(parsingHost: host, portField: port)
-            try WatchKeychain.saveEnrollment(
-                pkcs12: pkcsCopy,
-                password: secret,
-                certificate: certificateCopy,
-                endpoint: endpoint,
+            let name = try EdgeUsername.parse(username)
+            var enrollHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            if enrollHost.isEmpty {
+                enrollHost = await EnrollDiscovery.firstHost() ?? ""
+            }
+            if enrollHost.isEmpty {
+                discoveryFailed = true
+                status = "Enter the mini's private host."
+                return
+            }
+            let key = try PhoneIdentityKey.make(accessGroup: accessGroup)
+            let csr = try CertificateRequest.pem(username: name, privateKey: key)
+            let issued = try await EnrollClient.submit(username: name, csrPEM: csr, host: enrollHost)
+            try WatchKeychain.saveIssuedCertificate(
+                certificatePEM: issued.certificatePEM,
+                pinnedCertificate: issued.pinnedCertificate,
+                endpoint: issued.endpoint,
                 accessGroup: accessGroup
             )
-            let next = WatchSession(api: liveAPI(endpoint, certificateCopy, accessGroup))
+            host = issued.endpoint.host
+            username = ""
+            let next = WatchSession(api: liveAPI(issued.endpoint, issued.pinnedCertificate, accessGroup))
             session = next
             await next.checkCapabilities()
-            status = next.notice
+            if next.needsEnrollment {
+                WatchKeychain.clear(accessGroup: accessGroup)
+                session = nil
+                status = next.notice
+                return
+            }
+            status = ""
+        } catch let error as EdgeUsernameError {
+            status = error.screenText
         } catch let error as EndpointError {
+            discoveryFailed = true
+            status = error.screenText
+        } catch let error as EnrollFailure {
             status = error.screenText
         } catch let error as KeychainError {
             status = error.screenText
@@ -93,13 +99,71 @@ final class PhoneModel: ObservableObject {
         }
     }
 
-    func check() async {
-        guard let session else {
-            status = "Enroll before checking the principal."
+    func send(_ spoken: String) async {
+        guard let session, showsGlobe else { return }
+        guard let submission = UtteranceRouting.submission(from: spoken) else { return }
+        await session.sendTranscript(submission.text, profile: submission.profile, foreground: true)
+        await poll(session)
+        if session.needsEnrollment {
+            forgetSession()
+            status = session.notice
             return
         }
+        showBanner(session.replyText ?? session.notice)
+    }
+
+    func discoverHost() async {
+        if host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let found = await EnrollDiscovery.firstHost() {
+                host = found
+                discoveryFailed = false
+            } else {
+                discoveryFailed = true
+            }
+        }
+    }
+
+    private func checkExisting() async {
+        guard let session else { return }
         await session.checkCapabilities()
-        status = session.notice
+        if session.needsEnrollment {
+            forgetSession()
+            status = session.notice
+        }
+    }
+
+    private func poll(_ session: WatchSession) async {
+        var remaining = 40
+        while let id = session.pendingTurnID, remaining > 0 {
+            remaining -= 1
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await session.refreshVoice(id: id)
+        }
+    }
+
+    private func showBanner(_ text: String) {
+        fadeTask?.cancel()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            banner = ""
+            bannerVisible = false
+            return
+        }
+        banner = trimmed
+        bannerVisible = true
+        fadeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            bannerVisible = false
+        }
+    }
+
+    private func forgetSession() {
+        if let accessGroup {
+            WatchKeychain.clear(accessGroup: accessGroup)
+        }
+        session = nil
+        Task { await discoverHost() }
     }
 
     private func liveAPI(_ endpoint: EdgeEndpoint, _ certificate: Data, _ accessGroup: String) -> WatchAPI {

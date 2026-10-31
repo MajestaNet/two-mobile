@@ -28,9 +28,9 @@ This Mac still needs the Xcode license accepted (`sudo xcodebuild -license`) bef
 
 ## Enrollment
 
-`ca.crt`, `watch.p12`, the PKCS#12 password, `edge.env`, and LAN addresses stay out of git. Copy the certificate and the PKCS#12 to the iPhone by AirDrop or a cable from `$TWO_DATA_DIR/edge/`. The iPhone asks for the password once, stores the identity in the shared keychain, and does not keep the password or the file.
+`ca.crt`, `watch.p12`, the PKCS#12 password, `edge.env`, and LAN addresses stay out of git. The iPhone generates its own key and types a username. `two edge enroll --listen PRIVATE-LAN-IP` signs that CSR on port 8444, then exits. Caddy on 8443 still requires the client certificate. The watch PKCS#12 path remains for the watch target. Copy `ca.crt` and `watch.p12` by AirDrop or a cable from `$TWO_DATA_DIR/edge/` only when importing that file. The shared keychain stores the identity. The password and any p12 copy are not kept.
 
-Bundle ids are placeholders in `Config/Signing.xcconfig`: `local.two.phone` and `local.two.watch`. The keychain access group is `$(AppIdentifierPrefix)local.two.shared` on both targets. Replace the ids when the Developer Program is on this Mac. Do not commit a team id.
+Bundle ids are placeholders in `Config/Signing.xcconfig`: `local.two.phone` and `local.two.phone.watch`. The watch id has to start with the phone id so the simulator will install the companion. The keychain access group is `$(AppIdentifierPrefix)local.two.shared` on both targets. Replace the ids when the Developer Program is on this Mac. Do not commit a team id.
 
 The shared keychain group is how the watch is expected to see the identity. If a paired watch cannot see that group, the follow-up is one Watch Connectivity transfer of the PKCS#12, imported on the watch, then deleted. That transfer is not in this scaffold.
 

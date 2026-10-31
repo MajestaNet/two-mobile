@@ -7,11 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000018 /* TwoWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* TwoWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A1000000000000000000002A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000028 /* AVFoundation.framework */; };
 		A10000000000000000000032 /* libTwoClient.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000031 /* libTwoClient.a */; };
 		A10000000000000000000033 /* libTwoClient.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000031 /* libTwoClient.a */; };
-		A1000000000000000000002A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000028 /* AVFoundation.framework */; };
 		A1000000000000000000003A /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000039 /* Security.framework */; };
-		A10000000000000000000018 /* TwoWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* TwoWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000056 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000028 /* AVFoundation.framework */; };
+		A10000000000000000000057 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000055 /* Speech.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +61,7 @@
 		A10000000000000000000028 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		A10000000000000000000031 /* libTwoClient.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libTwoClient.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000039 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		A10000000000000000000055 /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -73,6 +76,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000032 /* libTwoClient.a in Frameworks */,
+				A10000000000000000000056 /* AVFoundation.framework in Frameworks */,
+				A10000000000000000000057 /* Speech.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -96,6 +101,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		781FCB333094A6CB0069CD7B /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000028 /* AVFoundation.framework */,
+				A10000000000000000000039 /* Security.framework */,
+				A10000000000000000000055 /* Speech.framework */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		A10000000000000000000004 = {
 			isa = PBXGroup;
 			children = (
@@ -103,6 +118,7 @@
 				A10000000000000000000025 /* Apps */,
 				A10000000000000000000026 /* Config */,
 				A10000000000000000000005 /* Products */,
+				781FCB333094A6CB0069CD7B /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -141,20 +157,20 @@
 			path = Apps;
 			sourceTree = "<group>";
 		};
-		A10000000000000000000035 /* Sources */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000034 /* TwoClient */,
-			);
-			path = Sources;
-			sourceTree = "<group>";
-		};
 		A10000000000000000000026 /* Config */ = {
 			isa = PBXGroup;
 			children = (
 				A1000000000000000000000A /* Signing.xcconfig */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000035 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000034 /* TwoClient */,
+			);
+			path = Sources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -315,13 +331,12 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1000000000000000000000A /* Signing.xcconfig */;
 			buildSettings = {
+				"CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]" = NO;
 				CODE_SIGN_ENTITLEMENTS = Apps/TwoPhone/TwoPhone.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "";
 				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_STYLE[sdk=iphonesimulator*]" = Manual;
-				"CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]" = NO;
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]" = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VGD34YDC52;
 				ENABLE_PREVIEWS = YES;
@@ -329,6 +344,9 @@
 				INFOPLIST_FILE = Apps/TwoPhone/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Two Phone";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The phone finds the Majesta Two install on the private LAN so it can enroll.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is on only while you hold the globe.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech stays on this iPhone. Audio is not uploaded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -340,6 +358,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(TWO_PHONE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]" = "";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -352,13 +371,12 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1000000000000000000000A /* Signing.xcconfig */;
 			buildSettings = {
+				"CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]" = NO;
 				CODE_SIGN_ENTITLEMENTS = Apps/TwoPhone/TwoPhone.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "";
 				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_STYLE[sdk=iphonesimulator*]" = Manual;
-				"CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]" = NO;
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]" = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VGD34YDC52;
 				ENABLE_PREVIEWS = YES;
@@ -366,6 +384,9 @@
 				INFOPLIST_FILE = Apps/TwoPhone/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Two Phone";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The phone finds the Majesta Two install on the private LAN so it can enroll.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is on only while you hold the globe.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech stays on this iPhone. Audio is not uploaded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -377,6 +398,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(TWO_PHONE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]" = "";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -389,20 +411,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1000000000000000000000A /* Signing.xcconfig */;
 			buildSettings = {
+				"CODE_SIGNING_REQUIRED[sdk=watchsimulator*]" = NO;
 				CODE_SIGN_ENTITLEMENTS = Apps/TwoWatch/TwoWatch.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=watchsimulator*]" = "";
 				"CODE_SIGN_IDENTITY[sdk=watchsimulator*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_STYLE[sdk=watchsimulator*]" = Manual;
-				"CODE_SIGNING_REQUIRED[sdk=watchsimulator*]" = NO;
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchsimulator*]" = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VGD34YDC52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/TwoWatch/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Two Watch";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is on only while you hold the talk button.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is on only while you hold the globe.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech stays on this watch. Audio is not uploaded.";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "$(TWO_PHONE_BUNDLE_ID)";
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
@@ -414,6 +435,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(TWO_WATCH_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchsimulator*]" = "";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
@@ -428,20 +450,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1000000000000000000000A /* Signing.xcconfig */;
 			buildSettings = {
+				"CODE_SIGNING_REQUIRED[sdk=watchsimulator*]" = NO;
 				CODE_SIGN_ENTITLEMENTS = Apps/TwoWatch/TwoWatch.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=watchsimulator*]" = "";
 				"CODE_SIGN_IDENTITY[sdk=watchsimulator*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_STYLE[sdk=watchsimulator*]" = Manual;
-				"CODE_SIGNING_REQUIRED[sdk=watchsimulator*]" = NO;
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchsimulator*]" = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VGD34YDC52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/TwoWatch/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Two Watch";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is on only while you hold the talk button.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is on only while you hold the globe.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech stays on this watch. Audio is not uploaded.";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "$(TWO_PHONE_BUNDLE_ID)";
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
@@ -453,50 +474,13 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(TWO_WATCH_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=watchsimulator*]" = "";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Release;
-		};
-		A10000000000000000000040 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				DEFINES_MODULE = YES;
-				EXECUTABLE_PREFIX = lib;
-				GENERATE_INFOPLIST_FILE = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACH_O_TYPE = staticlib;
-				PRODUCT_MODULE_NAME = TwoClient;
-				PRODUCT_NAME = TwoClient;
-				SDKROOT = auto;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator watchos watchsimulator";
-				SWIFT_VERSION = 5.0;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Debug;
-		};
-		A10000000000000000000041 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				DEFINES_MODULE = YES;
-				EXECUTABLE_PREFIX = lib;
-				GENERATE_INFOPLIST_FILE = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MACH_O_TYPE = staticlib;
-				PRODUCT_MODULE_NAME = TwoClient;
-				PRODUCT_NAME = TwoClient;
-				SDKROOT = auto;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator watchos watchsimulator";
-				SWIFT_VERSION = 5.0;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
@@ -538,6 +522,44 @@
 			};
 			name = Release;
 		};
+		A10000000000000000000040 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				DEFINES_MODULE = YES;
+				EXECUTABLE_PREFIX = lib;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACH_O_TYPE = staticlib;
+				PRODUCT_MODULE_NAME = TwoClient;
+				PRODUCT_NAME = TwoClient;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator watchos watchsimulator";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		A10000000000000000000041 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				DEFINES_MODULE = YES;
+				EXECUTABLE_PREFIX = lib;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACH_O_TYPE = staticlib;
+				PRODUCT_MODULE_NAME = TwoClient;
+				PRODUCT_NAME = TwoClient;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator watchos watchsimulator";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -559,15 +581,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A10000000000000000000042 /* Build configuration list for PBXNativeTarget "TwoClient" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A10000000000000000000040 /* Debug */,
-				A10000000000000000000041 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A10000000000000000000022 /* Build configuration list for PBXProject "Two" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -577,8 +590,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A10000000000000000000042 /* Build configuration list for PBXNativeTarget "TwoClient" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000040 /* Debug */,
+				A10000000000000000000041 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = A10000000000000000000001 /* Project object */;
 }

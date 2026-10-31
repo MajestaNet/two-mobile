@@ -3,218 +3,142 @@
 
 import SwiftUI
 import TwoClient
-import UniformTypeIdentifiers
+
+private let navy = Color(red: 27 / 255, green: 46 / 255, blue: 70 / 255)
+private let gold = Color(red: 246 / 255, green: 207 / 255, blue: 85 / 255)
 
 struct PhoneRootView: View {
     @ObservedObject var model: PhoneModel
 
     var body: some View {
-        TabView {
-            EnrollView(model: model)
-                .tabItem { Label("Enroll", systemImage: "person.badge.key") }
-            HouseView(session: model.session)
-                .tabItem { Label("House", systemImage: "house") }
-            ApprovalView(session: model.session)
-                .tabItem { Label("Approval", systemImage: "checkmark.seal") }
+        Group {
+            if model.showsGlobe {
+                GlobeView(model: model)
+            } else {
+                AuthView(model: model)
+            }
         }
+        .background(navy.ignoresSafeArea())
     }
 }
 
-struct EnrollView: View {
+struct AuthView: View {
     @ObservedObject var model: PhoneModel
-    @State private var chooseCertificate = false
-    @State private var chooseEnrollment = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Button(model.certificateChosen ? "CA selected" : "Choose CA") {
-                    chooseCertificate = true
-                }
-                Button(model.enrollmentChosen ? "Enrollment file selected" : "Choose enrollment file") {
-                    chooseEnrollment = true
-                }
-                SecureField("PKCS#12 password", text: $model.password)
+        VStack(spacing: 16) {
+            Text("Majesta Two")
+                .font(.title)
+                .foregroundStyle(gold)
+            TextField("Username", text: $model.username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .textContentType(.username)
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            if model.discoveryFailed || !model.host.isEmpty {
                 TextField("Private LAN host", text: $model.host)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                TextField("Port", text: $model.port)
-                    .keyboardType(.numberPad)
-                Button("Enroll") { Task { await model.enroll() } }
-                    .disabled(!canEnroll)
-                Button("Check principal") { Task { await model.check() } }
-                    .disabled(model.session == nil)
-                if !model.status.isEmpty {
-                    Text(model.status)
-                }
-                if let principal = model.session?.capabilities?.principal {
-                    Text(principal)
-                }
+                    .keyboardType(.URL)
+                    .foregroundStyle(.white)
+                    .padding(12)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
-            .navigationTitle("Enroll")
-            .fileImporter(isPresented: $chooseCertificate, allowedContentTypes: certificateTypes) { result in
-                accept(result, store: model.storeCertificate)
+            Button("Enroll") {
+                Task { await model.enroll() }
             }
-            .fileImporter(isPresented: $chooseEnrollment, allowedContentTypes: enrollmentTypes) { result in
-                accept(result, store: model.storeEnrollmentFile)
+            .disabled(!model.groupReady || model.username.isEmpty || model.authenticating)
+            .foregroundStyle(navy)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .background(gold, in: Capsule())
+            if !model.status.isEmpty {
+                Text(model.status)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
             }
         }
-    }
-
-    private var canEnroll: Bool {
-        model.groupReady && model.certificateChosen && model.enrollmentChosen
-            && !model.host.isEmpty && !model.password.isEmpty
-    }
-
-    private var certificateTypes: [UTType] {
-        if let type = UTType(filenameExtension: "crt") { return [type] }
-        return [.data]
-    }
-
-    private var enrollmentTypes: [UTType] {
-        if let type = UTType(filenameExtension: "p12") { return [type] }
-        return [.data]
-    }
-
-    private func accept(_ result: Result<URL, Error>, store: (Data) -> Void) {
-        switch result {
-        case .success(let url):
-            do {
-                store(try readSecurityScoped(url))
-            } catch {
-                model.status = "The file could not be read."
-            }
-        case .failure:
-            model.status = "The file could not be read."
-        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task { await model.discoverHost() }
     }
 }
 
-struct HouseView: View {
-    let session: WatchSession?
-
-    var body: some View {
-        NavigationStack {
-            if let session {
-                HouseContent(session: session)
-            } else {
-                Text("Enroll on this iPhone before reading health.")
-                    .padding()
-            }
-        }
-    }
-}
-
-private struct HouseContent: View {
-    @ObservedObject var session: WatchSession
-
-    var body: some View {
-        let picture = session.housePicture()
-        List {
-            Text(picture.healthLine)
-            if !picture.queueLine.isEmpty {
-                Text(picture.queueLine)
-            }
-            if !picture.notice.isEmpty {
-                Text(picture.notice)
-            }
-            if let correlationID = picture.correlationID {
-                Text(correlationID).font(.footnote)
-            }
-        }
-        .navigationTitle("House")
-        .toolbar {
-            Button("Refresh") { Task { await session.refreshHouse() } }
-        }
-        .task { await session.refreshHouse() }
-    }
-}
-
-struct ApprovalView: View {
-    let session: WatchSession?
-
-    var body: some View {
-        NavigationStack {
-            if let session {
-                ApprovalContent(session: session)
-            } else {
-                Text("Enroll on this iPhone before deciding.")
-                    .padding()
-            }
-        }
-    }
-}
-
-private struct ApprovalContent: View {
-    @ObservedObject var session: WatchSession
+struct GlobeView: View {
+    @ObservedObject var model: PhoneModel
+    @StateObject private var speech = PushToTalk()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        let picture = session.approvalPicture()
-        List {
-            pictureBody(picture)
-            if !session.notice.isEmpty {
-                Text(session.notice)
-            }
-            if let correlationID = session.correlationID {
-                Text(correlationID).font(.footnote)
+        VStack {
+            Spacer()
+            GoldGlobe(activity: globeActivity)
+                .scaleEffect(speech.holding ? 0.96 : 1)
+                .opacity(globeActivity == .unavailable ? 0.45 : 1)
+                .padding(36)
+                .contentShape(Rectangle())
+                .accessibilityElement()
+                .accessibilityLabel(globeActivity.accessibilityLabel)
+                .accessibilityAddTraits(.isButton)
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: globeActivity)
+                .onLongPressGesture(minimumDuration: 86_400, maximumDistance: 120, pressing: { pressing in
+                    Task { @MainActor in
+                        if pressing {
+                            if canHold { speech.press() }
+                        } else {
+                            let text = await speech.release()
+                            guard scenePhase == .active else { return }
+                            await model.send(text)
+                        }
+                    }
+                }, perform: {})
+            Spacer()
+            Text(bannerText)
+                .font(.body)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 36)
+                .opacity(bannerOpacity)
+                .animation(.easeOut(duration: 0.8), value: bannerOpacity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                speech.cancelWithoutSending()
             }
         }
-        .navigationTitle("Approval")
-        .toolbar {
-            Button("Refresh") { Task { await session.refreshApprovals() } }
-        }
-        .task { await session.refreshApprovals() }
-    }
-
-    @ViewBuilder
-    private func pictureBody(_ picture: ApprovalPicture) -> some View {
-        switch picture.body {
-        case .needsRefresh:
-            Text("No approval yet.")
-        case .missingScope:
-            Text("approvals:decide is not granted.")
-        case .empty:
-            Text("No open approval.")
-        case .unreachable:
-            Text("The mini is unreachable.")
-        case .task(let approval):
-            Text(approval.actionClass)
-            Text(approval.actionDigest).font(.system(.body, design: .monospaced))
-            if !approval.paths.isEmpty {
-                Text(approval.paths.joined(separator: "\n"))
-            }
-            decideButtons { decision in
-                Task {
-                    await session.decide(approval, decision: decision, foreground: scenePhase == .active)
-                }
-            }
-        case .voice(let approval):
-            Text(approval.summary)
-            Text(approval.actionDigest).font(.system(.body, design: .monospaced))
-            decideButtons { decision in
-                Task {
-                    await session.decideVoice(approval, decision: decision, foreground: scenePhase == .active)
-                }
-            }
+        .onDisappear {
+            speech.cancelWithoutSending()
+            model.session?.leaveTalkScreen()
         }
     }
 
-    @ViewBuilder
-    private func decideButtons(_ send: @escaping (ApprovalDecision) -> Void) -> some View {
-        Button("Approve") { send(.approve) }
-            .disabled(buttonsDisabled)
-        Button("Reject") { send(.reject) }
-            .disabled(buttonsDisabled)
+    private var globeActivity: GoldGlobeActivity {
+        GoldGlobeActivity.talk(
+            holding: speech.holding,
+            sending: model.session?.voiceInFlight == true,
+            available: model.session?.principalMatches == true && speech.unavailableReason == nil
+        )
     }
 
-    private var buttonsDisabled: Bool {
-        session.deciding || !session.canDecide || session.unreachable || scenePhase != .active
+    private var canHold: Bool {
+        model.session?.principalMatches == true
+            && model.session?.voiceInFlight != true
+            && speech.unavailableReason == nil
     }
-}
 
-private func readSecurityScoped(_ url: URL) throws -> Data {
-    let started = url.startAccessingSecurityScopedResource()
-    defer { if started { url.stopAccessingSecurityScopedResource() } }
-    return try Data(contentsOf: url)
+    private var bannerText: String {
+        if let reason = speech.unavailableReason { return reason }
+        if speech.holding { return speech.liveTranscript }
+        return model.banner
+    }
+
+    private var bannerOpacity: Double {
+        if speech.holding { return speech.liveTranscript.isEmpty ? 0 : 1 }
+        if let reason = speech.unavailableReason, !reason.isEmpty { return 1 }
+        return model.bannerVisible ? 1 : 0
+    }
 }

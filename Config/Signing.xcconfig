@@ -3,4 +3,4 @@
 // Simulator builds sign locally and do not request a provisioning profile.
 DEVELOPMENT_TEAM =
 TWO_PHONE_BUNDLE_ID = local.two.phone
-TWO_WATCH_BUNDLE_ID = local.two.watch
+TWO_WATCH_BUNDLE_ID = local.two.phone.watch

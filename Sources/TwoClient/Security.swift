@@ -43,6 +43,23 @@ enum PinnedTrust {
         let ders = chain.map { SecCertificateCopyData($0) as Data }
         return chainEnds(at: pinned, chain: ders)
     }
+
+    static func leaf(_ leafDER: Data, signedBy pinned: Data) -> Bool {
+        guard let cert = SecCertificateCreateWithData(nil, leafDER as CFData),
+              let der = der(from: pinned),
+              let anchor = SecCertificateCreateWithData(nil, der as CFData) else {
+            return false
+        }
+        var trust: SecTrust?
+        guard SecTrustCreateWithCertificates(cert, SecPolicyCreateBasicX509(), &trust) == errSecSuccess,
+              let trust else {
+            return false
+        }
+        SecTrustSetAnchorCertificates(trust, [anchor] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(trust, true)
+        var error: CFError?
+        return SecTrustEvaluateWithError(trust, &error)
+    }
 }
 
 public enum AccessGroup {
@@ -123,6 +140,67 @@ public enum WatchKeychain {
         return Enrollment(endpoint: endpoint, pinnedCertificate: certificate)
     }
 
+    public static func saveIssuedCertificate(
+        certificatePEM: Data,
+        pinnedCertificate: Data,
+        endpoint: EdgeEndpoint,
+        accessGroup: String
+    ) throws {
+        try require(accessGroup)
+        guard let der = PinnedTrust.der(from: certificatePEM),
+              let certificate = SecCertificateCreateWithData(nil, der as CFData) else {
+            throw KeychainError.status(Int(errSecDecode))
+        }
+        deleteIdentity(accessGroup: accessGroup)
+        let add: [String: Any] = [
+            kSecClass as String: kSecClassCertificate,
+            kSecValueRef as String: certificate,
+            kSecAttrLabel as String: identityLabel,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrSynchronizable as String: false,
+        ]
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else { throw map(status) }
+        do {
+            guard let identity = try copyIdentity(matching: certificate, accessGroup: accessGroup) else {
+                throw KeychainError.status(Int(errSecItemNotFound))
+            }
+            try storeIdentity(identity, accessGroup: accessGroup)
+            try storeItem(account: certificateAccount, data: pinnedCertificate, accessGroup: accessGroup)
+            try storeItem(
+                account: endpointAccount,
+                data: EndpointRecord.encode(endpoint),
+                accessGroup: accessGroup
+            )
+        } catch {
+            clear(accessGroup: accessGroup)
+            throw error
+        }
+    }
+
+    public static func clear(accessGroup: String) {
+        deleteIdentity(accessGroup: accessGroup)
+        PhoneIdentityKey.delete(accessGroup: accessGroup)
+        let certificate: [String: Any] = [
+            kSecClass as String: kSecClassCertificate,
+            kSecAttrLabel as String: identityLabel,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrSynchronizable as String: false,
+        ]
+        SecItemDelete(certificate as CFDictionary)
+        for account in [certificateAccount, endpointAccount] {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrSynchronizable as String: false,
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+    }
+
     static func copyIdentity(accessGroup: String) throws -> SecIdentity? {
         try require(accessGroup)
         let query: [String: Any] = [
@@ -136,6 +214,29 @@ public enum WatchKeychain {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let item else {
+            throw map(status)
+        }
+        let object = item as AnyObject
+        guard CFGetTypeID(object) == SecIdentityGetTypeID() else { return nil }
+        return (object as! SecIdentity)
+    }
+
+    static func copyIdentity(matching certificate: SecCertificate, accessGroup: String) throws -> SecIdentity? {
+        try require(accessGroup)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecMatchItemList as String: [certificate],
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrSynchronizable as String: false,
+            kSecReturnRef as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound {
+            return try copyIdentity(accessGroup: accessGroup)
+        }
         guard status == errSecSuccess, let item else {
             throw map(status)
         }

@@ -4,6 +4,21 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_two-enroll._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>The phone finds the Majesta Two install on the private LAN so it can enroll.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The microphone is on only while you hold the globe.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Speech stays on this iPhone. Audio is not uploaded.</string>
 	<key>TwoKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)local.two.shared</string>
 </dict>

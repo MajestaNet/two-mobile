@@ -20,6 +20,11 @@ public enum WatchFailure: Error, Equatable {
         return false
     }
 
+    public var isUnauthorized: Bool {
+        if case .unauthorized = self { return true }
+        return false
+    }
+
     public var correlationID: String? {
         switch self {
         case .unreachable:

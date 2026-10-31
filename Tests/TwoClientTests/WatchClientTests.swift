@@ -144,6 +144,56 @@ final class WatchClientTests: XCTestCase {
         XCTAssertEqual(Set(omitted.keys), ["text"])
     }
 
+    func testUtteranceDefaultsToOmittedProfileUnlessChatPrefix() {
+        XCTAssertNil(UtteranceRouting.submission(from: "  "))
+        XCTAssertNil(UtteranceRouting.submission(from: "chat"))
+        XCTAssertNil(UtteranceRouting.submission(from: "Chat,"))
+        XCTAssertEqual(
+            UtteranceRouting.submission(from: "turn the living room to 20"),
+            VoiceSubmission(text: "turn the living room to 20", profile: nil)
+        )
+        XCTAssertEqual(
+            UtteranceRouting.submission(from: "chat what's the weather"),
+            VoiceSubmission(text: "what's the weather", profile: .chat)
+        )
+        XCTAssertEqual(
+            UtteranceRouting.submission(from: "Chat, hello"),
+            VoiceSubmission(text: "hello", profile: .chat)
+        )
+        XCTAssertEqual(
+            UtteranceRouting.submission(from: "chapter one"),
+            VoiceSubmission(text: "chapter one", profile: nil)
+        )
+    }
+
+    func testDisplayLinePrefersDeviceReadback() throws {
+        let climate = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "complete",
+                extra: [
+                    "climate": [
+                        "zone": "living",
+                        "setpoint_celsius": 20,
+                        "reachable": true,
+                    ],
+                ]
+            ))
+        )
+        XCTAssertEqual(climate.displayLine, "living 20°")
+        let queued = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(profile: "chat", status: "queued", reply: "hidden"))
+        )
+        XCTAssertNil(queued.displayLine)
+        let waiting = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(profile: "home-action", status: "awaiting_approval"))
+        )
+        XCTAssertEqual(waiting.displayLine, "Needs a decision on the watch.")
+    }
+
     func testEmptyAndLongTranscriptsDoNotPost() async throws {
         let api = try makeAPI { _ in self.ok([:]) }
         do {
@@ -320,7 +370,12 @@ final class WatchClientTests: XCTestCase {
         )
     }
 
-    private func receipt(profile: String, status: String, reply: String? = nil) -> [String: Any] {
+    private func receipt(
+        profile: String,
+        status: String,
+        reply: String? = nil,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
         var body: [String: Any] = [
             "turn_id": "turn-1",
             "profile": profile,
@@ -331,6 +386,7 @@ final class WatchClientTests: XCTestCase {
             "route_slots": [],
         ]
         if let reply { body["reply"] = reply }
+        extra.forEach { body[$0.key] = $0.value }
         return body
     }
 

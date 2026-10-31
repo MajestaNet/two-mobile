@@ -131,6 +131,37 @@ public struct VoiceTurnReceipt: Decodable, Equatable, Sendable {
         status == "complete" ? reply : nil
     }
 
+    public var displayLine: String? {
+        if let climate {
+            if let setpoint = climate.setpointCelsius {
+                let value = setpoint.rounded() == setpoint
+                    ? String(Int(setpoint))
+                    : String(setpoint)
+                return "\(climate.zone) \(value)°"
+            }
+            return climate.zone
+        }
+        if let tv {
+            return "\(tv.setName) \(tv.power)"
+        }
+        if let vacuum {
+            return "\(vacuum.robot) \(vacuum.activity)"
+        }
+        if !fanout.isEmpty {
+            return fanout.map { "\($0.target) \($0.status)" }.joined(separator: ", ")
+        }
+        switch status {
+        case "complete":
+            return reply
+        case "awaiting_approval":
+            return "Needs a decision on the watch."
+        case "failed":
+            return "The turn failed."
+        default:
+            return nil
+        }
+    }
+
     public var voiceApproval: VoiceApproval? {
         guard status == "awaiting_approval", let actionDigest else { return nil }
         return VoiceApproval(turnID: turnID, actionDigest: actionDigest, summary: pendingSummary)

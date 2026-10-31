@@ -41,8 +41,10 @@ public final class WatchSession: ObservableObject {
     @Published public private(set) var unreachable = false
     @Published public private(set) var confirmationTranscript = ""
     @Published public private(set) var replyText: String?
+    @Published public private(set) var pendingTurnID: String?
     @Published public private(set) var voiceInFlight = false
     @Published public private(set) var deciding = false
+    @Published public private(set) var needsEnrollment = false
 
     public var canDecide: Bool { capabilities?.canDecide == true }
     public var showsChat: Bool { capabilities?.allows(.chat) == true }
@@ -108,6 +110,7 @@ public final class WatchSession: ObservableObject {
             let next = try await api.capabilities()
             capabilities = next
             unreachable = false
+            needsEnrollment = false
             correlationID = nil
             if next.principal == WatchPrincipal.expected {
                 notice = "Principal \(next.principal)."
@@ -234,14 +237,24 @@ public final class WatchSession: ObservableObject {
     private func apply(_ receipt: VoiceTurnReceipt) {
         unreachable = false
         correlationID = nil
-        replyText = receipt.replyForDisplay
+        replyText = receipt.displayLine
         voiceApproval = receipt.voiceApproval
         notice = receipt.statusLine
+        if receipt.status == "queued" || receipt.status == "running" {
+            pendingTurnID = receipt.turnID
+        } else {
+            pendingTurnID = nil
+        }
+        needsEnrollment = false
     }
 
     private func apply(_ failure: WatchFailure) {
         notice = failure.screenText
         correlationID = failure.correlationID
         unreachable = failure.isUnreachable
+        needsEnrollment = failure.isUnauthorized
+        if failure.isUnauthorized {
+            pendingTurnID = nil
+        }
     }
 }
