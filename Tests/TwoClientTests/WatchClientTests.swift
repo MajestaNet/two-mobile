@@ -294,6 +294,61 @@ final class WatchClientTests: XCTestCase {
         assertCleanHeaders(recorded.0)
     }
 
+    func testReachPrefersTheOverlayAddress() {
+        XCTAssertEqual(
+            EdgeReach.ordered(["192.168.0.95", "100.92.6.83", "192.168.0.95"]),
+            ["100.92.6.83", "192.168.0.95"]
+        )
+    }
+
+    func testEndpointRecordKeepsAnAlternateHost() throws {
+        let primary = try EdgeEndpoint(host: "100.64.1.5", port: 8443)
+        let home = try EdgeEndpoint(host: "10.1.1.5", port: 8443)
+        let decoded = try XCTUnwrap(EndpointRecord.decode(EndpointRecord.encode(primary: primary, alternates: [home])))
+        XCTAssertEqual(decoded.0, primary)
+        XCTAssertEqual(decoded.1, [home])
+        let legacy = try XCTUnwrap(EndpointRecord.decode(EndpointRecord.encode(primary)))
+        XCTAssertEqual(legacy.0.host, "100.64.1.5")
+        XCTAssertTrue(legacy.1.isEmpty)
+    }
+
+    func testUnreachableFallsThroughToTheHomeAddress() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FixtureURLProtocol.self]
+        configuration.waitsForConnectivity = false
+        let session = URLSession(configuration: configuration)
+        FixtureURLProtocol.reset { request in
+            if request.url?.host == "100.64.1.5" {
+                return FixtureURLProtocol.Response(status: 0, body: Data(), error: URLError(.cannotConnectToHost))
+            }
+            return self.ok([
+                "schema_version": 12,
+                "api_versions": ["v1"],
+                "principal": "client:watch",
+                "scopes": ["system:read"],
+                "allowed_harness_profiles": ["chat"],
+                "edge_hosts": ["100.64.1.5", "10.1.1.5"],
+                "auth": [
+                    "method": "edge_client",
+                    "oidc_available": false,
+                    "mobile_ready": false,
+                    "edge_available": true,
+                ],
+            ])
+        }
+        let api = WatchAPI(
+            baseURLs: [
+                URL(string: "https://100.64.1.5:8443")!,
+                URL(string: "https://10.1.1.5:8443")!,
+            ],
+            session: session
+        )
+        let caps = try await api.capabilities()
+        XCTAssertEqual(caps.principal, "client:watch")
+        XCTAssertEqual(caps.edgeHosts, ["100.64.1.5", "10.1.1.5"])
+        XCTAssertEqual(FixtureURLProtocol.requests.map { $0.0.url?.host }, ["100.64.1.5", "10.1.1.5"])
+    }
+
     func testUnreachableURLError() async throws {
         let api = try makeAPI { _ in
             FixtureURLProtocol.Response(status: 0, body: Data(), error: URLError(.notConnectedToInternet))
@@ -324,7 +379,8 @@ final class WatchClientTests: XCTestCase {
         XCTAssertEqual(endpoint.port, 8443)
         XCTAssertEqual(endpoint.baseURL.scheme, "https")
         let roundTrip = EndpointRecord.decode(EndpointRecord.encode(endpoint))
-        XCTAssertEqual(roundTrip, endpoint)
+        XCTAssertEqual(roundTrip?.0, endpoint)
+        XCTAssertEqual(roundTrip?.1.isEmpty, true)
     }
 
     func testChainMustEndAtPinnedCA() {

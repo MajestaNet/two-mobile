@@ -37,7 +37,14 @@ final class PhoneModel: ObservableObject {
                 return
             }
             host = enrollment.endpoint.host
-            session = WatchSession(api: liveAPI(enrollment.endpoint, enrollment.pinnedCertificate, accessGroup))
+            session = WatchSession(
+                api: liveAPI(
+                    enrollment.endpoint,
+                    enrollment.pinnedCertificate,
+                    accessGroup,
+                    also: enrollment.alternates
+                )
+            )
             Task { await checkExisting() }
         } catch let error as KeychainError {
             status = error.screenText
@@ -75,9 +82,18 @@ final class PhoneModel: ObservableObject {
             )
             host = issued.endpoint.host
             username = ""
-            let next = WatchSession(api: liveAPI(issued.endpoint, issued.pinnedCertificate, accessGroup))
+            let alternates = issued.hosts.filter { $0.host != issued.endpoint.host }
+            try WatchKeychain.saveReach(
+                primary: issued.endpoint,
+                alternates: alternates,
+                accessGroup: accessGroup
+            )
+            let next = WatchSession(
+                api: liveAPI(issued.endpoint, issued.pinnedCertificate, accessGroup, also: alternates)
+            )
             session = next
             await next.checkCapabilities()
+            rememberReach(next)
             if next.needsEnrollment {
                 WatchKeychain.clear(accessGroup: accessGroup)
                 session = nil
@@ -126,10 +142,32 @@ final class PhoneModel: ObservableObject {
     private func checkExisting() async {
         guard let session else { return }
         await session.checkCapabilities()
+        rememberReach(session)
         if session.needsEnrollment {
             forgetSession()
             status = session.notice
         }
+    }
+
+    private func rememberReach(_ session: WatchSession) {
+        guard let accessGroup else { return }
+        guard let enrollment = try? WatchKeychain.loadEnrollment(accessGroup: accessGroup) else { return }
+        let learned = session.capabilities?.edgeHosts ?? []
+        let names = EdgeReach.ordered(
+            [enrollment.endpoint.host] + enrollment.alternates.map(\.host) + learned
+        )
+        guard let primary = try? EdgeEndpoint(host: names[0], port: enrollment.endpoint.port) else { return }
+        let alternates = names.dropFirst().compactMap { try? EdgeEndpoint(host: $0, port: enrollment.endpoint.port) }
+        let changed = primary.host != enrollment.endpoint.host
+            || alternates.map(\.host) != enrollment.alternates.map(\.host)
+        if changed {
+            try? WatchKeychain.saveReach(
+                primary: primary,
+                alternates: alternates,
+                accessGroup: accessGroup
+            )
+        }
+        session.adopt(endpoints: [primary] + alternates)
     }
 
     private func poll(_ session: WatchSession) async {
@@ -166,7 +204,17 @@ final class PhoneModel: ObservableObject {
         Task { await discoverHost() }
     }
 
-    private func liveAPI(_ endpoint: EdgeEndpoint, _ certificate: Data, _ accessGroup: String) -> WatchAPI {
-        WatchAPI.makeLive(endpoint: endpoint, pinnedCertificate: certificate, accessGroup: accessGroup)
+    private func liveAPI(
+        _ endpoint: EdgeEndpoint,
+        _ certificate: Data,
+        _ accessGroup: String,
+        also: [EdgeEndpoint] = []
+    ) -> WatchAPI {
+        WatchAPI.makeLive(
+            endpoint: endpoint,
+            pinnedCertificate: certificate,
+            accessGroup: accessGroup,
+            also: also
+        )
     }
 }

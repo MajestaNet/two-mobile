@@ -36,7 +36,8 @@ final class WatchModel: ObservableObject {
                 api: WatchAPI.makeLive(
                     endpoint: enrollment.endpoint,
                     pinnedCertificate: enrollment.pinnedCertificate,
-                    accessGroup: accessGroup
+                    accessGroup: accessGroup,
+                    also: enrollment.alternates
                 )
             )
             Task { await checkExisting() }
@@ -63,6 +64,17 @@ final class WatchModel: ObservableObject {
     private func checkExisting() async {
         guard let session else { return }
         await session.checkCapabilities()
+        if let accessGroup,
+           let enrollment = try? WatchKeychain.loadEnrollment(accessGroup: accessGroup) {
+            let names = EdgeReach.ordered(
+                [enrollment.endpoint.host] + enrollment.alternates.map(\.host) + (session.capabilities?.edgeHosts ?? [])
+            )
+            let port = enrollment.endpoint.port
+            let endpoints = names.compactMap { try? EdgeEndpoint(host: $0, port: port) }
+            if !endpoints.isEmpty {
+                session.adopt(endpoints: endpoints)
+            }
+        }
         if session.needsEnrollment {
             forgetSession()
             status = session.notice

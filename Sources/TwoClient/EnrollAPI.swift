@@ -6,6 +6,7 @@ import Security
 
 public struct PhoneEnrollment: Equatable, Sendable {
     public let endpoint: EdgeEndpoint
+    public let hosts: [EdgeEndpoint]
     public let certificatePEM: Data
     public let pinnedCertificate: Data
 }
@@ -35,6 +36,7 @@ struct EnrollResponse: Decodable {
     let ca: String
     let host: String
     let port: Int
+    let hosts: [String]?
 }
 
 final class EnrollTrust: NSObject, URLSessionDelegate {
@@ -106,9 +108,13 @@ public enum EnrollClient {
         if let leaf = trust.leaf, !PinnedTrust.leaf(leaf, signedBy: ca) {
             throw EnrollFailure.certificateMismatch
         }
+        let names = EdgeReach.ordered(body.hosts ?? [body.host])
+        let reach = names.compactMap { try? EdgeEndpoint(host: $0, port: body.port) }
         let apiEndpoint = try EdgeEndpoint(host: body.host, port: body.port)
+        let primary = reach.first ?? apiEndpoint
         return PhoneEnrollment(
-            endpoint: apiEndpoint,
+            endpoint: primary,
+            hosts: reach.isEmpty ? [apiEndpoint] : reach,
             certificatePEM: Data(body.certificate.utf8),
             pinnedCertificate: ca
         )

@@ -115,15 +115,49 @@ public struct EdgeEndpoint: Equatable, Sendable {
     }
 }
 
-enum EndpointRecord {
-    static func encode(_ endpoint: EdgeEndpoint) -> Data {
-        Data("\(endpoint.host)\n\(endpoint.port)".utf8)
+public enum EdgeReach {
+    /// Overlay addresses first, so cellular does not wait on the home network.
+    public static func ordered(_ hosts: [String]) -> [String] {
+        var seen = Set<String>()
+        let unique = hosts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        return unique.sorted { rank($0) < rank($1) }
     }
 
-    static func decode(_ data: Data) -> EdgeEndpoint? {
+    private static func rank(_ host: String) -> Int {
+        isOverlay(host) ? 0 : 1
+    }
+
+    /// Tailscale IPv4 is 100.64.0.0/10. A hostname is an overlay name.
+    public static func isOverlay(_ host: String) -> Bool {
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        if parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) {
+            return parts[0] == 100 && (64...127).contains(parts[1])
+        }
+        return host.range(of: ".", options: []) == nil || host.contains(where: { $0.isLetter })
+    }
+}
+
+enum EndpointRecord {
+    static func encode(primary: EdgeEndpoint, alternates: [EdgeEndpoint]) -> Data {
+        var lines = [primary.host, String(primary.port)]
+        for alternate in alternates where alternate.host != primary.host {
+            lines.append(alternate.host)
+        }
+        return Data(lines.joined(separator: "\n").utf8)
+    }
+
+    static func encode(_ endpoint: EdgeEndpoint) -> Data {
+        encode(primary: endpoint, alternates: [])
+    }
+
+    static func decode(_ data: Data) -> (EdgeEndpoint, [EdgeEndpoint])? {
         guard let text = String(data: data, encoding: .utf8) else { return nil }
-        let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 2, let port = Int(parts[1]) else { return nil }
-        return try? EdgeEndpoint(host: parts[0], port: port)
+        let parts = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2, let port = Int(parts[1]) else { return nil }
+        guard let primary = try? EdgeEndpoint(host: parts[0], port: port) else { return nil }
+        let alternates = parts.dropFirst(2).compactMap { try? EdgeEndpoint(host: $0, port: port) }
+        return (primary, alternates)
     }
 }

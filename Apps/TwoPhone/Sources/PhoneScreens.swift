@@ -6,6 +6,15 @@ import TwoClient
 
 private let navy = Color(red: 27 / 255, green: 46 / 255, blue: 70 / 255)
 private let gold = Color(red: 246 / 255, green: 207 / 255, blue: 85 / 255)
+private let phoneMetal = LinearGradient(
+    colors: [
+        Color(red: 1, green: 0.97, blue: 0.84),
+        gold,
+        Color(red: 212 / 255, green: 158 / 255, blue: 46 / 255),
+    ],
+    startPoint: .top,
+    endPoint: .bottom
+)
 
 struct PhoneRootView: View {
     @ObservedObject var model: PhoneModel
@@ -18,7 +27,7 @@ struct PhoneRootView: View {
                 AuthView(model: model)
             }
         }
-        .background(navy.ignoresSafeArea())
+        .background { SpaceBackground() }
     }
 }
 
@@ -29,7 +38,7 @@ struct AuthView: View {
         VStack(spacing: 16) {
             Text("Majesta Two")
                 .font(.title)
-                .foregroundStyle(gold)
+                .foregroundStyle(phoneMetal)
             TextField("Username", text: $model.username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -53,7 +62,7 @@ struct AuthView: View {
             .foregroundStyle(navy)
             .padding(.horizontal, 24)
             .padding(.vertical, 10)
-            .background(gold, in: Capsule())
+            .background(phoneMetal, in: Capsule())
             if !model.status.isEmpty {
                 Text(model.status)
                     .foregroundStyle(.white)
@@ -133,12 +142,18 @@ struct GlobeView: View {
     private var bannerText: String {
         if let reason = speech.unavailableReason { return reason }
         if speech.holding { return speech.liveTranscript }
+        if globeActivity == .unavailable, let notice = model.session?.notice, !notice.isEmpty {
+            return notice
+        }
         return model.banner
     }
 
     private var bannerOpacity: Double {
         if speech.holding { return speech.liveTranscript.isEmpty ? 0 : 1 }
         if let reason = speech.unavailableReason, !reason.isEmpty { return 1 }
+        if globeActivity == .unavailable, let notice = model.session?.notice, !notice.isEmpty {
+            return 1
+        }
         return model.bannerVisible ? 1 : 0
     }
 }

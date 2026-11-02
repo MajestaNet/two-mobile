@@ -77,7 +77,26 @@ public enum AccessGroup {
 
 public struct Enrollment: Equatable, Sendable {
     public let endpoint: EdgeEndpoint
+    public let alternates: [EdgeEndpoint]
     public let pinnedCertificate: Data
+
+    public init(
+        endpoint: EdgeEndpoint,
+        pinnedCertificate: Data,
+        alternates: [EdgeEndpoint] = []
+    ) {
+        self.endpoint = endpoint
+        self.alternates = alternates
+        self.pinnedCertificate = pinnedCertificate
+    }
+
+    public var reach: [EdgeEndpoint] {
+        var hosts = [endpoint]
+        for alternate in alternates where alternate.host != endpoint.host {
+            hosts.append(alternate)
+        }
+        return hosts
+    }
 }
 
 public enum KeychainError: Error, Equatable {
@@ -133,11 +152,15 @@ public enum WatchKeychain {
         try require(accessGroup)
         guard let certificate = try readItem(account: certificateAccount, accessGroup: accessGroup),
               let endpointData = try readItem(account: endpointAccount, accessGroup: accessGroup),
-              let endpoint = EndpointRecord.decode(endpointData) else {
+              let decoded = EndpointRecord.decode(endpointData) else {
             return nil
         }
         guard try copyIdentity(accessGroup: accessGroup) != nil else { return nil }
-        return Enrollment(endpoint: endpoint, pinnedCertificate: certificate)
+        return Enrollment(
+            endpoint: decoded.0,
+            pinnedCertificate: certificate,
+            alternates: decoded.1
+        )
     }
 
     public static func saveIssuedCertificate(
@@ -152,21 +175,25 @@ public enum WatchKeychain {
             throw KeychainError.status(Int(errSecDecode))
         }
         deleteIdentity(accessGroup: accessGroup)
+        deleteCertificate(accessGroup: accessGroup)
+        // iOS returns errSecParam (-50) for kSecAttrAccessible, kSecAttrSynchronizable,
+        // and kSecMatchItemList on a certificate or identity. The private key already
+        // carries the access policy. The certificate label is how the identity is found.
         let add: [String: Any] = [
             kSecClass as String: kSecClassCertificate,
             kSecValueRef as String: certificate,
             kSecAttrLabel as String: identityLabel,
             kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecAttrSynchronizable as String: false,
         ]
         let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw map(status) }
+        guard status == errSecSuccess || status == errSecDuplicateItem else { throw map(status) }
         do {
-            guard let identity = try copyIdentity(matching: certificate, accessGroup: accessGroup) else {
-                throw KeychainError.status(Int(errSecItemNotFound))
+            if try copyIdentity(accessGroup: accessGroup) == nil {
+                guard let found = try copyIdentity(matching: certificate, accessGroup: accessGroup) else {
+                    throw KeychainError.status(Int(errSecItemNotFound))
+                }
+                try labelExistingIdentity(found, accessGroup: accessGroup)
             }
-            try storeIdentity(identity, accessGroup: accessGroup)
             try storeItem(account: certificateAccount, data: pinnedCertificate, accessGroup: accessGroup)
             try storeItem(
                 account: endpointAccount,
@@ -179,16 +206,23 @@ public enum WatchKeychain {
         }
     }
 
+    public static func saveReach(
+        primary: EdgeEndpoint,
+        alternates: [EdgeEndpoint],
+        accessGroup: String
+    ) throws {
+        try require(accessGroup)
+        try storeItem(
+            account: endpointAccount,
+            data: EndpointRecord.encode(primary: primary, alternates: alternates),
+            accessGroup: accessGroup
+        )
+    }
+
     public static func clear(accessGroup: String) {
         deleteIdentity(accessGroup: accessGroup)
         PhoneIdentityKey.delete(accessGroup: accessGroup)
-        let certificate: [String: Any] = [
-            kSecClass as String: kSecClassCertificate,
-            kSecAttrLabel as String: identityLabel,
-            kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrSynchronizable as String: false,
-        ]
-        SecItemDelete(certificate as CFDictionary)
+        deleteCertificate(accessGroup: accessGroup)
         for account in [certificateAccount, endpointAccount] {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
@@ -207,7 +241,6 @@ public enum WatchKeychain {
             kSecClass as String: kSecClassIdentity,
             kSecAttrLabel as String: identityLabel,
             kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrSynchronizable as String: false,
             kSecReturnRef as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -222,27 +255,59 @@ public enum WatchKeychain {
         return (object as! SecIdentity)
     }
 
+    private static func deleteCertificate(accessGroup: String) {
+        let certificate: [String: Any] = [
+            kSecClass as String: kSecClassCertificate,
+            kSecAttrLabel as String: identityLabel,
+            kSecAttrAccessGroup as String: accessGroup,
+        ]
+        SecItemDelete(certificate as CFDictionary)
+    }
+
     static func copyIdentity(matching certificate: SecCertificate, accessGroup: String) throws -> SecIdentity? {
         try require(accessGroup)
+        if let labeled = try copyIdentity(accessGroup: accessGroup),
+           try sameCertificate(labeled, certificate) {
+            return labeled
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassIdentity,
-            kSecMatchItemList as String: [certificate],
             kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrSynchronizable as String: false,
             kSecReturnRef as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitAll,
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound {
-            return try copyIdentity(accessGroup: accessGroup)
-        }
+        if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let item else {
             throw map(status)
         }
+        for identity in identities(from: item) where try sameCertificate(identity, certificate) {
+            return identity
+        }
+        return nil
+    }
+
+    private static func identities(from item: CFTypeRef) -> [SecIdentity] {
         let object = item as AnyObject
-        guard CFGetTypeID(object) == SecIdentityGetTypeID() else { return nil }
-        return (object as! SecIdentity)
+        if CFGetTypeID(object) == SecIdentityGetTypeID() {
+            return [(object as! SecIdentity)]
+        }
+        guard CFGetTypeID(object) == CFArrayGetTypeID() else { return [] }
+        let array = object as! CFArray
+        return (0..<CFArrayGetCount(array)).compactMap { index in
+            let value = CFArrayGetValueAtIndex(array, index)
+            let element = unsafeBitCast(value, to: AnyObject.self)
+            guard CFGetTypeID(element) == SecIdentityGetTypeID() else { return nil }
+            return (element as! SecIdentity)
+        }
+    }
+
+    private static func sameCertificate(_ identity: SecIdentity, _ certificate: SecCertificate) throws -> Bool {
+        var found: SecCertificate?
+        let status = SecIdentityCopyCertificate(identity, &found)
+        guard status == errSecSuccess, let found else { throw map(status) }
+        return (SecCertificateCopyData(found) as Data) == (SecCertificateCopyData(certificate) as Data)
     }
 
     private static func require(_ accessGroup: String) throws {
@@ -277,10 +342,23 @@ public enum WatchKeychain {
             kSecValueRef as String: identity,
             kSecAttrLabel as String: identityLabel,
             kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecAttrSynchronizable as String: false,
         ]
         let status = SecItemAdd(add as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            try labelExistingIdentity(identity, accessGroup: accessGroup)
+            return
+        }
+        guard status == errSecSuccess else { throw map(status) }
+    }
+
+    private static func labelExistingIdentity(_ identity: SecIdentity, accessGroup: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecValueRef as String: identity,
+            kSecAttrAccessGroup as String: accessGroup,
+        ]
+        let changes = [kSecAttrLabel as String: identityLabel] as CFDictionary
+        let status = SecItemUpdate(query as CFDictionary, changes)
         guard status == errSecSuccess else { throw map(status) }
     }
 
@@ -289,7 +367,6 @@ public enum WatchKeychain {
             kSecClass as String: kSecClassIdentity,
             kSecAttrLabel as String: identityLabel,
             kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrSynchronizable as String: false,
         ]
         SecItemDelete(query as CFDictionary)
     }

@@ -105,6 +105,10 @@ public final class WatchSession: ObservableObject {
         return ApprovalPicture(body: .empty)
     }
 
+    public func adopt(endpoints: [EdgeEndpoint]) {
+        api.replace(endpoints: endpoints)
+    }
+
     public func checkCapabilities() async {
         do {
             let next = try await api.capabilities()

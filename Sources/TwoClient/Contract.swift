@@ -22,6 +22,16 @@ public struct Capabilities: Decodable, Equatable, Sendable {
     public let scopes: [String]
     public let allowedHarnessProfiles: [String]
     public let auth: AuthCapabilities
+    public let edgeHosts: [String]
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        principal = try container.decode(String.self, forKey: .principal)
+        scopes = try container.decode([String].self, forKey: .scopes)
+        allowedHarnessProfiles = try container.decode([String].self, forKey: .allowedHarnessProfiles)
+        auth = try container.decode(AuthCapabilities.self, forKey: .auth)
+        edgeHosts = try container.decodeIfPresent([String].self, forKey: .edgeHosts) ?? []
+    }
 
     public var canDecide: Bool { scopes.contains("approvals:decide") }
     public var canReadSystem: Bool { scopes.contains("system:read") }
@@ -36,6 +46,7 @@ public struct Capabilities: Decodable, Equatable, Sendable {
         case scopes
         case allowedHarnessProfiles = "allowed_harness_profiles"
         case auth
+        case edgeHosts = "edge_hosts"
     }
 }
 

@@ -104,12 +104,18 @@ final class EdgeSessionDelegate: NSObject, URLSessionDelegate {
 }
 
 public final class WatchAPI {
-    private let baseURL: URL
+    private var baseURLs: [URL]
     private let session: URLSession
     private let delegateRetainer: EdgeSessionDelegate?
 
     public init(baseURL: URL, session: URLSession) {
-        self.baseURL = baseURL
+        self.baseURLs = [baseURL]
+        self.session = session
+        delegateRetainer = nil
+    }
+
+    public init(baseURLs: [URL], session: URLSession) {
+        self.baseURLs = baseURLs.isEmpty ? [] : baseURLs
         self.session = session
         delegateRetainer = nil
     }
@@ -117,7 +123,8 @@ public final class WatchAPI {
     public static func makeLive(
         endpoint: EdgeEndpoint,
         pinnedCertificate: Data,
-        accessGroup: String
+        accessGroup: String,
+        also: [EdgeEndpoint] = []
     ) -> WatchAPI {
         let delegate = EdgeSessionDelegate(
             pinnedCertificate: pinnedCertificate,
@@ -131,11 +138,21 @@ public final class WatchAPI {
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 15
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        return WatchAPI(baseURL: endpoint.baseURL, session: session, delegate: delegate)
+        let urls = EdgeReach.ordered([endpoint.host] + also.map(\.host)).compactMap { host in
+            try? EdgeEndpoint(host: host, port: endpoint.port).baseURL
+        }
+        return WatchAPI(baseURLs: urls.isEmpty ? [endpoint.baseURL] : urls, session: session, delegate: delegate)
     }
 
-    private init(baseURL: URL, session: URLSession, delegate: EdgeSessionDelegate) {
-        self.baseURL = baseURL
+    public func replace(endpoints: [EdgeEndpoint]) {
+        let urls = endpoints.map(\.baseURL)
+        if !urls.isEmpty {
+            baseURLs = urls
+        }
+    }
+
+    private init(baseURLs: [URL], session: URLSession, delegate: EdgeSessionDelegate) {
+        self.baseURLs = baseURLs
         self.session = session
         delegateRetainer = delegate
     }
@@ -208,27 +225,38 @@ public final class WatchAPI {
 
     private func perform(_ method: String, _ path: String, json: Data?) async throws -> (Data, URLResponse) {
         try rejectTaskSubmit(method: method, path: path)
-        var request = URLRequest(url: url(path))
-        request.httpMethod = method
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let json {
-            request.httpBody = json
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let urls = baseURLs
+        var sawUnreachable = false
+        for (index, base) in urls.enumerated() {
+            var request = URLRequest(url: url(base, path))
+            request.httpMethod = method
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.timeoutInterval = urls.count > 1 ? 6 : 15
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let json {
+                request.httpBody = json
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
+            if let bearer = DeferredBearer.headerValue(), !bearer.isEmpty {
+                request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+            }
+            do {
+                return try await session.data(for: request)
+            } catch let error as URLError where Reachability.isUnreachable(error) {
+                sawUnreachable = true
+                if index == urls.count - 1 {
+                    throw WatchFailure.unreachable
+                }
+            } catch let error as WatchFailure {
+                throw error
+            } catch {
+                throw WatchFailure.transport(correlationID: nil)
+            }
         }
-        if let bearer = DeferredBearer.headerValue(), !bearer.isEmpty {
-            request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        }
-        do {
-            return try await session.data(for: request)
-        } catch let error as URLError where Reachability.isUnreachable(error) {
+        if sawUnreachable {
             throw WatchFailure.unreachable
-        } catch let error as WatchFailure {
-            throw error
-        } catch {
-            throw WatchFailure.transport(correlationID: nil)
         }
+        throw WatchFailure.transport(correlationID: nil)
     }
 
     private func rejectTaskSubmit(method: String, path: String) throws {
@@ -237,12 +265,12 @@ public final class WatchAPI {
         }
     }
 
-    private func url(_ path: String) -> URL {
-        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            return baseURL
+    private func url(_ base: URL, _ path: String) -> URL {
+        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            return base
         }
         components.path = path
-        return components.url ?? baseURL
+        return components.url ?? base
     }
 
     private func component(_ value: String) -> String {
