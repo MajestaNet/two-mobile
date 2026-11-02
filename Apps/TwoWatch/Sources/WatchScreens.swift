@@ -92,6 +92,8 @@ struct WatchGlobeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 speech.cancelWithoutSending()
+            } else {
+                Task { await model.refreshIfNeeded() }
             }
         }
         .onDisappear {

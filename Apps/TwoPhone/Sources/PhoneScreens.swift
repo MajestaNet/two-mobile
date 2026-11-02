@@ -117,7 +117,12 @@ struct GlobeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
                 speech.cancelWithoutSending()
+            } else {
+                Task { await model.refreshIfNeeded() }
             }
+        }
+        .onAppear {
+            Task { await model.refreshIfNeeded() }
         }
         .onDisappear {
             speech.cancelWithoutSending()

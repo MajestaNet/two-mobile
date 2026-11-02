@@ -61,6 +61,11 @@ final class WatchModel: ObservableObject {
         showBanner(session.replyText ?? session.notice)
     }
 
+    func refreshIfNeeded() async {
+        guard session != nil, session?.principalMatches != true else { return }
+        await checkExisting()
+    }
+
     private func checkExisting() async {
         guard let session else { return }
         await session.checkCapabilities()

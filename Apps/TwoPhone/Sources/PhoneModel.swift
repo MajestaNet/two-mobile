@@ -110,6 +110,8 @@ final class PhoneModel: ObservableObject {
             status = error.screenText
         } catch let error as KeychainError {
             status = error.screenText
+        } catch is CertificateRequestError {
+            status = "The phone could not create an enrollment key."
         } catch {
             status = "Enrollment failed."
         }
@@ -137,6 +139,11 @@ final class PhoneModel: ObservableObject {
                 discoveryFailed = true
             }
         }
+    }
+
+    func refreshIfNeeded() async {
+        guard session != nil, session?.principalMatches != true else { return }
+        await checkExisting()
     }
 
     private func checkExisting() async {

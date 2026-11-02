@@ -71,7 +71,7 @@ private struct ErrorEnvelope: Decodable {
     }
 }
 
-final class EdgeSessionDelegate: NSObject, URLSessionDelegate {
+final class EdgeSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate {
     let pinnedCertificate: Data
     let accessGroup: String
 
@@ -100,6 +100,33 @@ final class EdgeSessionDelegate: NSObject, URLSessionDelegate {
             return (.useCredential, credential)
         }
         return (.cancelAuthenticationChallenge, nil)
+    }
+
+    /// The client-certificate challenge restarts the request. A POST body
+    /// cannot be read twice unless a fresh stream is supplied.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        needNewBodyStreamFrom offset: Int64,
+        completionHandler: @escaping @Sendable (InputStream?) -> Void
+    ) {
+        guard let body = task.originalRequest?.httpBody else {
+            completionHandler(nil)
+            return
+        }
+        let stream = InputStream(data: body)
+        if offset > 0 {
+            stream.open()
+            var skipped = 0
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while skipped < offset {
+                let want = min(buffer.count, Int(offset) - skipped)
+                let count = stream.read(&buffer, maxLength: want)
+                if count <= 0 { break }
+                skipped += count
+            }
+        }
+        completionHandler(stream)
     }
 }
 
@@ -226,7 +253,7 @@ public final class WatchAPI {
     private func perform(_ method: String, _ path: String, json: Data?) async throws -> (Data, URLResponse) {
         try rejectTaskSubmit(method: method, path: path)
         let urls = baseURLs
-        var sawUnreachable = false
+        var lastError: URLError?
         for (index, base) in urls.enumerated() {
             var request = URLRequest(url: url(base, path))
             request.httpMethod = method
@@ -242,21 +269,30 @@ public final class WatchAPI {
             }
             do {
                 return try await session.data(for: request)
-            } catch let error as URLError where Reachability.isUnreachable(error) {
-                sawUnreachable = true
+            } catch let error as URLError {
+                lastError = error
                 if index == urls.count - 1 {
-                    throw WatchFailure.unreachable
+                    throw failure(for: error)
                 }
             } catch let error as WatchFailure {
                 throw error
             } catch {
-                throw WatchFailure.transport(correlationID: nil)
+                if index == urls.count - 1 {
+                    throw WatchFailure.transport(correlationID: nil)
+                }
             }
         }
-        if sawUnreachable {
-            throw WatchFailure.unreachable
+        if let lastError {
+            throw failure(for: lastError)
         }
         throw WatchFailure.transport(correlationID: nil)
+    }
+
+    private func failure(for error: URLError) -> WatchFailure {
+        if Reachability.isUnreachable(error) {
+            return .unreachable
+        }
+        return .transport(correlationID: nil)
     }
 
     private func rejectTaskSubmit(method: String, path: String) throws {

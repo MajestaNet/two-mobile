@@ -51,6 +51,12 @@ final class EnrollTrust: NSObject, URLSessionDelegate {
             guard let trust = challenge.protectionSpace.serverTrust else {
                 return (.cancelAuthenticationChallenge, nil)
             }
+            // The enroll CA is not in the system trust store yet. Record the
+            // failure, then accept that exact certificate for this handshake.
+            _ = SecTrustEvaluateWithError(trust, nil)
+            if let exceptions = SecTrustCopyExceptions(trust) {
+                SecTrustSetExceptions(trust, exceptions)
+            }
             if let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
                let first = chain.first {
                 leaf = SecCertificateCopyData(first) as Data
@@ -93,6 +99,25 @@ public enum EnrollClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            switch error.code {
+            case .serverCertificateUntrusted,
+                 .serverCertificateHasBadDate,
+                 .serverCertificateHasUnknownRoot,
+                 .serverCertificateNotYetValid,
+                 .secureConnectionFailed,
+                 .clientCertificateRejected:
+                throw EnrollFailure.rejected("The phone rejected the mini certificate.")
+            case .notConnectedToInternet,
+                 .cannotConnectToHost,
+                 .cannotFindHost,
+                 .timedOut,
+                 .networkConnectionLost,
+                 .dataNotAllowed:
+                throw EnrollFailure.unreachable
+            default:
+                throw EnrollFailure.rejected("Enrollment stopped before the mini answered.")
+            }
         } catch {
             throw EnrollFailure.unreachable
         }

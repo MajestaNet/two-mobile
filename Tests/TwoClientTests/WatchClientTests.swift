@@ -349,6 +349,46 @@ final class WatchClientTests: XCTestCase {
         XCTAssertEqual(FixtureURLProtocol.requests.map { $0.0.url?.host }, ["100.64.1.5", "10.1.1.5"])
     }
 
+    func testCertificateRetryFailureFallsThroughToTheHomeAddress() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FixtureURLProtocol.self]
+        configuration.waitsForConnectivity = false
+        let session = URLSession(configuration: configuration)
+        FixtureURLProtocol.reset { request in
+            if request.url?.host == "100.64.1.5" {
+                return FixtureURLProtocol.Response(
+                    status: 0,
+                    body: Data(),
+                    error: URLError(.requestBodyStreamExhausted)
+                )
+            }
+            return self.ok([
+                "schema_version": 12,
+                "api_versions": ["v1"],
+                "principal": "client:watch",
+                "scopes": ["system:read"],
+                "allowed_harness_profiles": ["chat"],
+                "edge_hosts": ["100.64.1.5", "10.1.1.5"],
+                "auth": [
+                    "method": "edge_client",
+                    "oidc_available": false,
+                    "mobile_ready": false,
+                    "edge_available": true,
+                ],
+            ])
+        }
+        let api = WatchAPI(
+            baseURLs: [
+                URL(string: "https://100.64.1.5:8443")!,
+                URL(string: "https://10.1.1.5:8443")!,
+            ],
+            session: session
+        )
+        let caps = try await api.capabilities()
+        XCTAssertEqual(caps.principal, "client:watch")
+        XCTAssertEqual(FixtureURLProtocol.requests.map { $0.0.url?.host }, ["100.64.1.5", "10.1.1.5"])
+    }
+
     func testUnreachableURLError() async throws {
         let api = try makeAPI { _ in
             FixtureURLProtocol.Response(status: 0, body: Data(), error: URLError(.notConnectedToInternet))
