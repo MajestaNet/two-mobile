@@ -188,6 +188,10 @@ public final class WatchAPI {
         try await send("GET", "/v1/system/capabilities")
     }
 
+    public func adapters() async throws -> AdapterMenu {
+        try await send("GET", "/v1/system/adapters")
+    }
+
     public func submitVoiceTurn(text: String, profile: VoiceProfile?) async throws -> VoiceTurnReceipt {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 4_000 else {

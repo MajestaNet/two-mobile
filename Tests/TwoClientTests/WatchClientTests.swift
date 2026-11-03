@@ -502,6 +502,178 @@ final class WatchClientTests: XCTestCase {
         XCTAssertFalse(names.contains("authorization"))
     }
 
+    func testApplianceListKeepsBoundZonesSetsAndRobots() throws {
+        let menu = try JSON.decoder.decode(
+            AdapterMenu.self,
+            from: jsonData([
+                "slots": [
+                    [
+                        "id": "climate",
+                        "install_enabled": true,
+                        "devices": [
+                            ["id": "living-room", "kind": "zone"],
+                            ["id": "hall-node", "kind": "node"],
+                        ],
+                    ],
+                    [
+                        "id": "tv",
+                        "install_enabled": false,
+                        "devices": [["id": "lounge", "kind": "set"]],
+                    ],
+                    [
+                        "id": "vacuum",
+                        "install_enabled": true,
+                        "devices": [["id": "downstairs", "kind": "robot"]],
+                    ],
+                    [
+                        "id": "cli",
+                        "install_enabled": true,
+                        "devices": [],
+                    ],
+                ],
+            ])
+        )
+        let listed = ApplianceCatalog.appliances(in: menu)
+        XCTAssertEqual(listed.map(\.id), ["climate/living-room", "vacuum/downstairs"])
+        XCTAssertEqual(listed[0].title, "Living Room")
+        XCTAssertEqual(listed[0].kindName, "Air conditioner")
+        XCTAssertEqual(listed[0].actions, [.on, .off, .heat, .cool])
+        XCTAssertEqual(listed[1].actions, [.start, .stop, .station])
+        XCTAssertEqual(listed[1].kindName, "Vacuum")
+    }
+
+    func testAppliancePhrasesUseClosedVerbs() {
+        let zone = BoundAppliance(slot: "climate", deviceID: "living-room")
+        XCTAssertEqual(ApplianceCatalog.phrase(zone, .on), "turn living room auto")
+        XCTAssertEqual(ApplianceCatalog.phrase(zone, .off), "turn living room ac off")
+        XCTAssertEqual(ApplianceCatalog.phrase(zone, .heat), "heat living room")
+        XCTAssertEqual(ApplianceCatalog.phrase(zone, .cool), "cool living room")
+        XCTAssertEqual(ApplianceCatalog.phrase(zone, .read), "living room ac temperature")
+        let television = BoundAppliance(slot: "tv", deviceID: "lounge")
+        XCTAssertEqual(ApplianceCatalog.phrase(television, .on), "turn lounge tv on")
+        XCTAssertEqual(ApplianceCatalog.phrase(television, .off), "turn lounge tv off")
+        XCTAssertEqual(ApplianceCatalog.phrase(television, .read), "lounge tv status")
+        let robot = BoundAppliance(slot: "vacuum", deviceID: "downstairs")
+        XCTAssertEqual(ApplianceCatalog.phrase(robot, .start), "start downstairs vacuum")
+        XCTAssertEqual(ApplianceCatalog.phrase(robot, .stop), "stop downstairs vacuum")
+        XCTAssertEqual(ApplianceCatalog.phrase(robot, .station), "dock downstairs vacuum")
+        XCTAssertEqual(ApplianceCatalog.phrase(robot, .read), "downstairs vacuum status")
+        XCTAssertEqual(robot.actions.first { $0 == .station }?.accessibilityTitle, "Return to station")
+    }
+
+    func testApplianceSightUsesReachability() throws {
+        let online = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "complete",
+                extra: [
+                    "climate": [
+                        "zone": "living-room",
+                        "mode": "cool",
+                        "setpoint_celsius": 18,
+                        "reachable": true,
+                    ],
+                ]
+            ))
+        )
+        let cool = ApplianceCatalog.sight(in: online, slot: "climate", deviceID: "living-room")
+        XCTAssertEqual(cool.link, .online)
+        XCTAssertEqual(cool.detail, "Cool 18°")
+
+        let mixed = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "complete",
+                extra: [
+                    "fanout": [
+                        [
+                            "slot": "climate",
+                            "target": "living-room",
+                            "status": "complete",
+                            "climate": [
+                                "zone": "living-room",
+                                "mode": "heat",
+                                "setpoint_celsius": 22,
+                                "reachable": true,
+                            ],
+                        ],
+                        [
+                            "slot": "climate",
+                            "target": "living-room",
+                            "status": "complete",
+                            "climate": [
+                                "zone": "living-room",
+                                "mode": "heat",
+                                "setpoint_celsius": 22,
+                                "reachable": false,
+                            ],
+                        ],
+                    ],
+                ]
+            ))
+        )
+        let heat = ApplianceCatalog.sight(in: mixed, slot: "climate", deviceID: "living-room")
+        XCTAssertEqual(heat.link, .offline)
+        XCTAssertEqual(heat.detail, "Offline")
+
+        let failed = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(profile: "home-action", status: "failed"))
+        )
+        XCTAssertEqual(
+            ApplianceCatalog.sight(in: failed, slot: "tv", deviceID: "lounge"),
+            ApplianceSight(link: .offline, detail: "The turn failed.")
+        )
+
+        let waiting = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(profile: "home-action", status: "awaiting_approval"))
+        )
+        XCTAssertEqual(
+            ApplianceCatalog.sight(in: waiting, slot: "vacuum", deviceID: "downstairs").link,
+            nil
+        )
+    }
+
+    func testAdaptersRequestAndHomeActionProfile() async throws {
+        let api = try makeAPI { request in
+            if request.url?.path == "/v1/system/adapters" {
+                return self.ok([
+                    "schema_version": 12,
+                    "slots": [
+                        [
+                            "id": "tv",
+                            "kind": "device",
+                            "status": "shipped",
+                            "package": "tv",
+                            "default_enabled": false,
+                            "selectable": true,
+                            "harness_profiles": ["home-action"],
+                            "notes": "",
+                            "install_enabled": true,
+                            "devices": [["id": "lounge", "kind": "set"]],
+                        ],
+                    ],
+                ])
+            }
+            return self.ok(self.receipt(profile: "home-action", status: "queued"))
+        }
+        let menu = try await api.adapters()
+        XCTAssertEqual(ApplianceCatalog.appliances(in: menu).map(\.deviceID), ["lounge"])
+        let request = try XCTUnwrap(FixtureURLProtocol.requests.first?.0)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/v1/system/adapters")
+        assertCleanHeaders(request)
+
+        _ = try await api.submitVoiceTurn(text: "turn lounge tv on", profile: .homeAction)
+        let body = try jsonObject(FixtureURLProtocol.requests[1].1)
+        XCTAssertEqual(body["profile"] as? String, "home-action")
+        XCTAssertEqual(body["text"] as? String, "turn lounge tv on")
+        XCTAssertEqual(Set(body.keys), ["profile", "text"])
+    }
+
     private func mirrorContains(_ value: Any, needle: String) -> Bool {
         if let text = value as? String { return text.contains(needle) }
         let mirror = Mirror(reflecting: value)
@@ -541,6 +713,34 @@ final class WatchSessionTests: XCTestCase {
         let posts = FixtureURLProtocol.requests.filter { $0.0.httpMethod == "POST" }
         XCTAssertEqual(posts.count, 1)
         XCTAssertFalse(session.notice.localizedCaseInsensitiveContains("approve"))
+    }
+
+    func testDeviceCommandDoesNotKeepTheTranscript() async throws {
+        let api = try makeAPI { request in
+            if request.url?.path == "/v1/voice/turns" {
+                return self.ok([
+                    "turn_id": "turn-9",
+                    "profile": "home-action",
+                    "status": "queued",
+                    "cursor": "MQ",
+                    "revision": 1,
+                    "fanout": [],
+                    "route_slots": [],
+                ])
+            }
+            return self.capabilities()
+        }
+        let session = WatchSession(api: api)
+        let receipt = await session.submitHomeAction("heat living room")
+        XCTAssertEqual(receipt?.turnID, "turn-9")
+        XCTAssertEqual(receipt?.profile, "home-action")
+        XCTAssertEqual(session.confirmationTranscript, "")
+        let posted = FixtureURLProtocol.requests.filter { $0.0.httpMethod == "POST" }
+        XCTAssertEqual(posted.count, 1)
+        let body = try JSONSerialization.jsonObject(with: posted[0].1) as? [String: Any]
+        XCTAssertEqual(body?["profile"] as? String, "home-action")
+        XCTAssertEqual(body?["text"] as? String, "heat living room")
+        XCTAssertFalse(session.confirmationTranscript.contains("living"))
     }
 
     func testStaleDigestReloadsOnceAndDoesNotResend() async throws {

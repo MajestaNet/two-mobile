@@ -128,6 +128,58 @@ public final class WatchSession: ObservableObject {
         }
     }
 
+    public func adapters() async throws -> AdapterMenu {
+        do {
+            let menu = try await api.adapters()
+            unreachable = false
+            return menu
+        } catch let failure as WatchFailure {
+            apply(failure)
+            throw failure
+        } catch {
+            apply(.unreachable)
+            throw WatchFailure.unreachable
+        }
+    }
+
+    /// A button on the phone, not a spoken transcript. The talk screen does not keep the text.
+    public func submitHomeAction(_ text: String) async -> VoiceTurnReceipt? {
+        guard !voiceInFlight else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if capabilities?.allows(.homeAction) == false {
+            notice = WatchFailure.forbidden(detail: "", correlationID: nil).screenText
+            return nil
+        }
+        voiceInFlight = true
+        defer { voiceInFlight = false }
+        do {
+            let receipt = try await api.submitVoiceTurn(text: trimmed, profile: .homeAction)
+            apply(receipt)
+            return receipt
+        } catch let failure as WatchFailure {
+            apply(failure)
+            return nil
+        } catch {
+            apply(.unreachable)
+            return nil
+        }
+    }
+
+    public func pollVoice(id: String) async -> VoiceTurnReceipt? {
+        do {
+            let receipt = try await api.voiceTurn(id: id)
+            apply(receipt)
+            return receipt
+        } catch let failure as WatchFailure {
+            apply(failure)
+            return nil
+        } catch {
+            apply(.unreachable)
+            return nil
+        }
+    }
+
     public func refreshHouse() async {
         if capabilities == nil { await checkCapabilities() }
         guard capabilities?.canReadSystem == true else { return }

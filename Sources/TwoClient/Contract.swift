@@ -67,11 +67,13 @@ public struct AuthCapabilities: Decodable, Equatable, Sendable {
 public struct ClimateReadback: Decodable, Equatable, Sendable {
     public let zone: String
     public let setpointCelsius: Double?
+    public let mode: String?
     public let reachable: Bool
 
     enum CodingKeys: String, CodingKey {
         case zone
         case setpointCelsius = "setpoint_celsius"
+        case mode
         case reachable
     }
 }
@@ -118,6 +120,9 @@ public struct FanoutItem: Decodable, Equatable, Sendable {
     public let slot: String
     public let target: String
     public let status: String
+    public let climate: ClimateReadback?
+    public let tv: TVReadback?
+    public let vacuum: VacuumReadback?
 }
 
 public struct VoiceTurnReceipt: Decodable, Equatable, Sendable {

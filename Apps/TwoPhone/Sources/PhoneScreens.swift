@@ -16,18 +16,71 @@ private let phoneMetal = LinearGradient(
     endPoint: .bottom
 )
 
+private enum PhonePage: Hashable {
+    case talk
+    case devices
+}
+
 struct PhoneRootView: View {
     @ObservedObject var model: PhoneModel
+    @State private var page: PhonePage? = .talk
 
     var body: some View {
         Group {
             if model.showsGlobe {
-                GlobeView(model: model)
+                house
             } else {
                 AuthView(model: model)
             }
         }
         .background { SpaceBackground() }
+    }
+
+    private var house: some View {
+        ScrollView(.vertical) {
+            VStack(spacing: 0) {
+                GlobeView(model: model, onDevices: { show(.devices) })
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(PhonePage.talk)
+                DevicesPage(model: model, onTalk: { show(.talk) })
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(PhonePage.devices)
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $page)
+        .scrollIndicators(.hidden)
+        .overlay(alignment: .trailing) { pageMarks }
+        .onChange(of: page) { _, next in
+            if next == .devices {
+                Task { await model.refreshAppliances() }
+            } else {
+                model.stopApplianceChecks()
+            }
+        }
+    }
+
+    private var pageMarks: some View {
+        VStack(spacing: 8) {
+            pageMark(page != .devices)
+            pageMark(page == .devices)
+        }
+        .padding(.trailing, 12)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func pageMark(_ on: Bool) -> some View {
+        Circle()
+            .fill(on ? gold : Color.white.opacity(0.35))
+            .frame(width: 7, height: 7)
+    }
+
+    private func show(_ next: PhonePage) {
+        withAnimation(.easeInOut(duration: 0.35)) {
+            page = next
+        }
     }
 }
 
@@ -77,6 +130,7 @@ struct AuthView: View {
 
 struct GlobeView: View {
     @ObservedObject var model: PhoneModel
+    var onDevices: (() -> Void)? = nil
     @StateObject private var speech = PushToTalk()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -109,9 +163,24 @@ struct GlobeView: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 36)
+                .padding(.bottom, onDevices == nil ? 36 : 8)
                 .opacity(bannerOpacity)
                 .animation(.easeOut(duration: 0.8), value: bannerOpacity)
+            if let onDevices {
+                Button(action: onDevices) {
+                    VStack(spacing: 2) {
+                        Text("Devices")
+                            .font(.caption)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(gold)
+                    .padding(.bottom, 16)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Devices")
+                .accessibilityHint("Scroll down for appliances")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: scenePhase) { _, phase in
@@ -160,5 +229,165 @@ struct GlobeView: View {
             return 1
         }
         return model.bannerVisible ? 1 : 0
+    }
+}
+
+struct DevicesPage: View {
+    @ObservedObject var model: PhoneModel
+    var onTalk: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                Button(action: onTalk) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.up")
+                        Text("Talk")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(gold)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Talk")
+                .accessibilityHint("Scroll up for the globe")
+                Spacer()
+                if model.checkingAppliances {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(gold)
+                        .accessibilityLabel("Checking appliances")
+                }
+            }
+            Text("Devices")
+                .font(.title2)
+                .foregroundStyle(phoneMetal)
+            if !model.applianceNotice.isEmpty {
+                Text(model.applianceNotice)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if model.appliances.isEmpty {
+                Spacer()
+                if model.applianceNotice.isEmpty {
+                    Text(model.appliancesReady && !model.checkingAppliances
+                        ? "No appliances are bound."
+                        : "Looking for appliances.")
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity)
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(model.appliances) { card in
+                            ApplianceRow(model: model, card: card)
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
+                .refreshable { await model.refreshAppliances() }
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .padding(.trailing, 18)
+    }
+}
+
+private struct ApplianceRow: View {
+    @ObservedObject var model: PhoneModel
+    let card: ApplianceCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                LinkLamp(link: card.link)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.appliance.title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if !card.detail.isEmpty {
+                        Text(card.detail)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                Text(card.appliance.kindName)
+                    .font(.caption)
+                    .foregroundStyle(gold)
+                    .multilineTextAlignment(.trailing)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 8)], spacing: 8) {
+                ForEach(card.appliance.actions, id: \.self) { verb in
+                    Button(verb.title) {
+                        model.control(verb, card)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(navy)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(phoneMetal, in: Capsule())
+                    .opacity(model.controlsEnabled ? 1 : 0.45)
+                    .disabled(!model.controlsEnabled)
+                    .accessibilityLabel("\(verb.accessibilityTitle), \(card.appliance.title)")
+                }
+            }
+            if model.busyApplianceID == card.id {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(gold)
+                    Text("Sending")
+                        .font(.caption)
+                        .foregroundStyle(gold)
+                }
+                .accessibilityLabel("Sending")
+            }
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(gold.opacity(0.35), lineWidth: 1)
+        }
+    }
+}
+
+private struct LinkLamp: View {
+    let link: ApplianceLink
+
+    var body: some View {
+        Circle()
+            .fill(link == .unknown ? Color.clear : color)
+            .overlay {
+                Circle().stroke(link == .unknown ? gold.opacity(0.85) : color, lineWidth: 1.5)
+            }
+            .frame(width: 12, height: 12)
+            .shadow(color: link == .unknown ? .clear : color.opacity(0.9), radius: 5)
+            .accessibilityLabel(label)
+    }
+
+    private var color: Color {
+        switch link {
+        case .online:
+            Color(red: 0.30, green: 0.82, blue: 0.42)
+        case .offline:
+            Color(red: 0.90, green: 0.27, blue: 0.24)
+        case .unknown:
+            gold
+        }
+    }
+
+    private var label: String {
+        switch link {
+        case .online: "Connected"
+        case .offline: "Offline"
+        case .unknown: "Connectivity unknown"
+        }
     }
 }
