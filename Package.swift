@@ -2,6 +2,7 @@
 import PackageDescription
 
 // Shared by TwoPhone and TwoWatch. URLSession and Security.framework only.
+// Licensed under the Apache License, Version 2.0. See LICENSE and NOTICE.
 // macOS is the host for offline URLProtocol tests on this mini, not a third app.
 let package = Package(
     name: "TwoClient",

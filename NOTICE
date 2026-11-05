@@ -1,0 +1,9 @@
+Majesta Two iOS companion
+Copyright 2026 MajestaNet
+
+This product is the iPhone and Apple Watch companion for Majesta Two.
+It is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+The control plane is Majesta Two, in the MajestaNet/two repository,
+licensed separately under the same Apache License, Version 2.0.

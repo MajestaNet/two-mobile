@@ -8,7 +8,7 @@ protocol source of truth is two at a named commit; local copies live in docs/ups
 
 ## What this tree is
 
-This repository is [two-mobile](https://github.com/MajestaNet/two-mobile). It is the iOS client checkout. The first scaffold inside it is the watch app plus the companion iPhone that enrolls it. Push to talk, health, and approval. Profiles are `chat` and `home-action` only. This is not the B14 development-loop GUI, and that GUI does not belong in the watch target.
+This repository is [two-mobile](https://github.com/MajestaNet/two-mobile), the iOS companion for [Majesta Two](https://github.com/MajestaNet/two). It is the iPhone app and the Apple Watch app, under the Apache License 2.0 (see `LICENSE` and `NOTICE`), the same license as `two`. The phone enrolls the watch. Push to talk, health, and approval. Profiles are `chat` and `home-action` only. This is not the B14 development-loop GUI, and that GUI does not belong in the watch target.
 
 The control plane stays in the sibling `two` checkout. Do not modify `two` from a task whose job is this client. Do not add this repo to `config/repositories/two.yaml`.
 
