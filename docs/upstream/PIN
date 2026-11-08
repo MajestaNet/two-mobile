@@ -1,11 +1,11 @@
 repository: two
 remote: https://github.com/MajestaNet/two.git
-commit: b1b5df6a2374f782db96419232355ca888320cc4
-committed: 2026-10-30T07:50:57+1100
-pinned: 2026-10-30
+commit: 0f58d70cf4944093ca890122264274a2dd867cae
+committed: 2026-11-08T12:35:59+1100
+pinned: 2026-11-08
 rule: update two first, then refresh these copies
 files:
-  watch-client.md: sha256:5e676d3c74e65a44f0ac8b1df165d9813534503bcce87b390817e00bd31ae6ed
+  watch-client.md: sha256:4c947c29c2ac270679588ecf2160e572a1ac5e484240ceeed592cfdbe0e2657f
   0020-watch-edge-mtls.md: sha256:a4839055569815df1e319240eced9ad50fb4fc70dd7d9d0909e978c25c2280c2
   client-api-design-section-6.md: sha256:6a0bc4330d3c038aab79832f3be7d88c43cdde839bc481485ade90ec3f9e7740
   client-threat-model.md: sha256:ad82e3d58f526517fa964069d94570f2241fd8832381d7c4e31dfe8ba0396fbc

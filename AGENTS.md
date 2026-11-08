@@ -10,21 +10,21 @@ protocol source of truth is two at a named commit; local copies live in docs/ups
 
 This repository is [two-mobile](https://github.com/MajestaNet/two-mobile), the iOS companion for [Majesta Two](https://github.com/MajestaNet/two). It is the iPhone app and the Apple Watch app, under the Apache License 2.0 (see `LICENSE` and `NOTICE`), the same license as `two`. The phone enrolls the watch. Push to talk, health, and approval. Profiles are `chat` and `home-action` only. This is not the B14 development-loop GUI, and that GUI does not belong in the watch target.
 
-The control plane stays in the sibling `two` checkout. Do not modify `two` from a task whose job is this client. Do not add this repo to `config/repositories/two.yaml`.
+## Live loop on this Mac
 
-## Pinned contract
+The control plane is the sibling [Majesta Two](https://github.com/MajestaNet/two) checkout. How to start it, including enrollment, is `docs/local.md` in that repo. Do not modify `two` from a task whose job is this client. Do not add this repo to `config/repositories/two.yaml`.
 
-`docs/upstream/PIN` names the `two` commit these copies came from. Today that is `b1b5df6a2374f782db96419232355ca888320cc4` (2026-10-30). Pinned files: `watch-client.md`, ADR 0020, `client-api-design.md` §6, and `client-threat-model.md`.
-
-When the API changes, change `two` first, then refresh those copies and the PIN. Do not edit the copies to invent a contract. Where `watch-client.md` and ADR 0020 disagree, the ADR wins.
-
-## Live loop on this mini
-
-Xcode and the simulators run here. `two api` stays on `127.0.0.1:8741`. Caddy listens on the private LAN address from `uv run two edge issue --listen PRIVATE-LAN-IP`. The simulator uses that LAN host, saved at enrollment. It does not use loopback, and it does not call the API port.
+Xcode and the simulators run here. `two api` stays on `127.0.0.1:8741`. The operator window's **Start enrollment** (or `two edge enroll`) listens on the private address. Caddy then serves `8443` on the home Wi-Fi address and the Tailscale address. The phone uses the address saved at enrollment. It does not use loopback, and it does not call the API port.
 
 `swift test` is the offline gate. Fixture `URLProtocol` tests do not need Caddy. Open `Two.xcworkspace` and run the TwoPhone or TwoWatch scheme when a simulator is required.
 
 This Mac still needs the Xcode license accepted (`sudo xcodebuild -license`) before `swift test` or an Xcode build will run.
+
+## Pinned contract
+
+`docs/upstream/PIN` names the `two` commit these copies came from. Today that is `0f58d70cf4944093ca890122264274a2dd867cae` (2026-11-08). `watch-client.md` was refreshed so it names this repository. ADR 0020, `client-api-design.md` §6, and `client-threat-model.md` are unchanged and still match that commit.
+
+When the API changes, change `two` first, then refresh those copies and the PIN. Do not edit the copies to invent a contract. Where `watch-client.md` and ADR 0020 disagree, the ADR wins.
 
 ## Enrollment
 
