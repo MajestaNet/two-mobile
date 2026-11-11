@@ -5,7 +5,7 @@ committed: 2026-11-08T12:35:59+1100
 pinned: 2026-11-08
 rule: update two first, then refresh these copies
 files:
-  watch-client.md: sha256:4c947c29c2ac270679588ecf2160e572a1ac5e484240ceeed592cfdbe0e2657f
+  watch-client.md: sha256:6b5bbab4e70f04d44e0f8662e47101548b3eadbb0bf02b580d8bcdfecf86f88b
   0020-watch-edge-mtls.md: sha256:a4839055569815df1e319240eced9ad50fb4fc70dd7d9d0909e978c25c2280c2
   client-api-design-section-6.md: sha256:6a0bc4330d3c038aab79832f3be7d88c43cdde839bc481485ade90ec3f9e7740
   client-threat-model.md: sha256:ad82e3d58f526517fa964069d94570f2241fd8832381d7c4e31dfe8ba0396fbc

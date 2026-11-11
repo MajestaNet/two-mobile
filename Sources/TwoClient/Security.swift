@@ -150,6 +150,7 @@ public enum WatchKeychain {
 
     public static func loadEnrollment(accessGroup: String) throws -> Enrollment? {
         try require(accessGroup)
+        allowUseAfterFirstUnlock(accessGroup: accessGroup)
         guard let certificate = try readItem(account: certificateAccount, accessGroup: accessGroup),
               let endpointData = try readItem(account: endpointAccount, accessGroup: accessGroup),
               let decoded = EndpointRecord.decode(endpointData) else {
@@ -382,7 +383,7 @@ public enum WatchKeychain {
         SecItemDelete(query as CFDictionary)
         var add = query
         add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(add as CFDictionary, nil)
         guard status == errSecSuccess else { throw map(status) }
     }
@@ -402,6 +403,23 @@ public enum WatchKeychain {
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let item else { throw map(status) }
         return item as? Data
+    }
+
+    private static func allowUseAfterFirstUnlock(accessGroup: String) {
+        for account in [certificateAccount, endpointAccount] {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrSynchronizable as String: false,
+            ]
+            let changes = [
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary
+            SecItemUpdate(query as CFDictionary, changes)
+        }
+        PhoneIdentityKey.allowUseAfterFirstUnlock(accessGroup: accessGroup)
     }
 
     private static func map(_ status: OSStatus) -> KeychainError {

@@ -22,7 +22,7 @@ public enum PhoneIdentityKey {
         var privateAttrs: [String: Any] = [
             kSecAttrIsPermanent as String: true,
             kSecAttrApplicationTag as String: tag,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecAttrSynchronizable as String: false,
         ]
         if !accessGroup.isEmpty {
@@ -46,6 +46,22 @@ public enum PhoneIdentityKey {
             query[kSecAttrAccessGroup as String] = accessGroup
         }
         SecItemDelete(query as CFDictionary)
+    }
+
+    /// An enrolled key stays usable after the first unlock so Siri can present it.
+    public static func allowUseAfterFirstUnlock(accessGroup: String) {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tag,
+            kSecAttrSynchronizable as String: false,
+        ]
+        if !accessGroup.isEmpty {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        let changes = [
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ] as CFDictionary
+        SecItemUpdate(query as CFDictionary, changes)
     }
 }
 

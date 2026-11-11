@@ -154,6 +154,23 @@ final class PhoneModel: ObservableObject {
         }
     }
 
+    func presentVoiceTurn(_ turnID: String) async {
+        if session == nil { bootstrap() }
+        guard let session else {
+            status = "Enroll Two on this iPhone first."
+            return
+        }
+        if session.capabilities == nil {
+            await session.checkCapabilities()
+        }
+        await session.refreshVoice(id: turnID)
+    }
+
+    func decideVoice(_ decision: ApprovalDecision) {
+        guard let session, let approval = session.voiceApproval, !session.deciding else { return }
+        Task { await session.decideVoice(approval, decision: decision, foreground: true) }
+    }
+
     func refreshIfNeeded() async {
         guard session != nil, session?.principalMatches != true else { return }
         await checkExisting()
@@ -261,6 +278,7 @@ final class PhoneModel: ObservableObject {
             return
         }
         applianceNotice = ""
+        TwoShortcuts.updateAppShortcutParameters()
         guard session.showsHomeAction else {
             applianceNotice = "home-action is not granted."
             return

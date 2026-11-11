@@ -49,7 +49,8 @@ The shared keychain group is how the watch is expected to see the identity. If a
 - Airplane mode shows unreachable and does not queue a decide for later.
 - Silence is not approval. The watch must be unlocked and in the foreground.
 - Speech uses `requiresOnDeviceRecognition`. If the locale cannot do that, show it as unavailable and do not record. Do not upload audio.
-- Do not speak `reply` in this build. Do not log the transcript after the operator leaves the talk screen.
+- Push to talk does not speak `reply`. The Siri dialog may speak `reply` when the chat turn is complete, and it may speak a device read-back. Do not log the transcript after the operator leaves the talk screen.
+- A Siri intent does not approve or reject. `awaiting_approval` opens the phone and shows the digest.
 - A diff projection keeps summary counts only. `source_included: false` does not render a patch.
 
 ## Layout

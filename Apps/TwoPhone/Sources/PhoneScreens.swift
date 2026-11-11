@@ -34,6 +34,10 @@ struct PhoneRootView: View {
             }
         }
         .background { SpaceBackground() }
+        .onReceive(NotificationCenter.default.publisher(for: .twoSiriApproval)) { note in
+            guard let turnID = note.object as? String, !turnID.isEmpty else { return }
+            Task { await model.presentVoiceTurn(turnID) }
+        }
     }
 
     private var house: some View {
@@ -52,12 +56,27 @@ struct PhoneRootView: View {
         .scrollPosition(id: $page)
         .scrollIndicators(.hidden)
         .overlay(alignment: .trailing) { pageMarks }
+        .overlay(alignment: .bottom) { voiceDecision }
         .onChange(of: page) { _, next in
             if next == .devices {
                 Task { await model.refreshAppliances() }
             } else {
                 model.stopApplianceChecks()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var voiceDecision: some View {
+        if let approval = model.session?.voiceApproval {
+            VoiceDecisionCard(
+                approval: approval,
+                enabled: model.session?.canDecide == true && model.session?.deciding != true,
+                onReject: { model.decideVoice(.reject) },
+                onApprove: { model.decideVoice(.approve) }
+            )
+            .padding(.horizontal, 24)
+            .padding(.bottom, 28)
         }
     }
 
@@ -389,5 +408,47 @@ private struct LinkLamp: View {
         case .offline: "Offline"
         case .unknown: "Connectivity unknown"
         }
+    }
+}
+
+private struct VoiceDecisionCard: View {
+    let approval: VoiceApproval
+    let enabled: Bool
+    let onReject: () -> Void
+    let onApprove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("That needs a decision on the phone.")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            Text(approval.summary)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.85))
+            Text(approval.actionDigest)
+                .font(.caption2.monospaced())
+                .foregroundStyle(gold)
+                .lineLimit(3)
+                .textSelection(.enabled)
+            HStack(spacing: 12) {
+                Button("Reject", action: onReject)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.white.opacity(0.12), in: Capsule())
+                Button("Approve", action: onApprove)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(navy)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(phoneMetal, in: Capsule())
+            }
+            .disabled(!enabled)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .contain)
     }
 }

@@ -22,6 +22,26 @@ public struct AdapterSlot: Decodable, Equatable, Sendable {
 public struct AdapterDevice: Decodable, Equatable, Sendable {
     public let id: String
     public let kind: String
+    public let aliases: [String]
+
+    public init(id: String, kind: String, aliases: [String] = []) {
+        self.id = id
+        self.kind = kind
+        self.aliases = aliases
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        kind = try container.decode(String.self, forKey: .kind)
+        aliases = try container.decodeIfPresent([String].self, forKey: .aliases) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case aliases
+    }
 }
 
 public enum ApplianceLink: Equatable, Sendable {
@@ -75,12 +95,14 @@ public struct BoundAppliance: Equatable, Sendable, Identifiable {
     public let title: String
     public let kindName: String
     public let actions: [ApplianceVerb]
+    public let aliases: [String]
 
     public var id: String { "\(slot)/\(deviceID)" }
 
-    public init(slot: String, deviceID: String) {
+    public init(slot: String, deviceID: String, aliases: [String] = []) {
         self.slot = slot
         self.deviceID = deviceID
+        self.aliases = aliases
         title = ApplianceCatalog.title(deviceID)
         kindName = ApplianceCatalog.kindName(slot)
         actions = ApplianceCatalog.actions(slot)
@@ -95,7 +117,9 @@ public enum ApplianceCatalog {
         for slot in menu.slots {
             guard slot.installEnabled, let kind = kinds[slot.id] else { continue }
             for device in slot.devices where device.kind == kind && !device.id.isEmpty {
-                listed.append(BoundAppliance(slot: slot.id, deviceID: device.id))
+                listed.append(
+                    BoundAppliance(slot: slot.id, deviceID: device.id, aliases: device.aliases)
+                )
             }
         }
         return listed
@@ -155,6 +179,27 @@ public enum ApplianceCatalog {
             return "\(name) vacuum status"
         default:
             return nil
+        }
+    }
+
+    /// Whole degrees the climate compiler accepts.
+    public static func setpointPhrase(_ appliance: BoundAppliance, celsius: Int) -> String? {
+        guard appliance.slot == "climate", (0...50).contains(celsius) else { return nil }
+        let name = spokenName(appliance.deviceID)
+        guard !name.isEmpty else { return nil }
+        return "set \(name) to \(celsius)"
+    }
+
+    /// True when the spoken words name this appliance or one of its aliases.
+    public static func matchesSpoken(_ appliance: BoundAppliance, _ spoken: String) -> Bool {
+        let query = spokenName(spoken).lowercased()
+        guard !query.isEmpty else { return false }
+        let names = [spokenName(appliance.deviceID)] + appliance.aliases.map(spokenName)
+        return names.contains { name in
+            let normalized = name.lowercased()
+            guard !normalized.isEmpty else { return false }
+            if query == normalized { return true }
+            return " \(query) ".contains(" \(normalized) ")
         }
     }
 

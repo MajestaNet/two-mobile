@@ -4,6 +4,17 @@
 <dict>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
+	<key>CFBundleSpokenName</key>
+	<string>Two</string>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Two</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>too</string>
+		</dict>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBonjourServices</key>

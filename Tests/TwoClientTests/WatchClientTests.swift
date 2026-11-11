@@ -674,6 +674,144 @@ final class WatchClientTests: XCTestCase {
         XCTAssertEqual(Set(body.keys), ["profile", "text"])
     }
 
+    func testSiriPhrasesReuseTheClosedCompilerStrings() throws {
+        let menu = try JSON.decoder.decode(AdapterMenu.self, from: jsonData(siriMenu()))
+        XCTAssertEqual(
+            SiriPhrases.resolve(.off("climate/living-room"), menu: menu),
+            .submit(VoiceSubmission(text: "turn living room ac off", profile: nil))
+        )
+        XCTAssertEqual(
+            SiriPhrases.resolve(.setpoint("climate/living-room", 20), menu: menu),
+            .submit(VoiceSubmission(text: "set living room to 20", profile: nil))
+        )
+        XCTAssertEqual(
+            SiriPhrases.resolve(.setpoint("climate/living-room", 51), menu: menu),
+            .temperatureOutOfRange
+        )
+        XCTAssertEqual(SiriPhrases.resolve(.heat("tv/lounge"), menu: menu), .unsupported)
+        XCTAssertEqual(SiriPhrases.resolve(.off("climate/missing"), menu: menu), .unbound)
+        XCTAssertEqual(SiriPhrases.resolve(.ask("  "), menu: menu), .empty)
+        XCTAssertEqual(
+            SiriPhrases.resolve(.ask("chat hello"), menu: menu),
+            .submit(VoiceSubmission(text: "hello", profile: .chat))
+        )
+        XCTAssertEqual(
+            SiriPhrases.resolve(.ask("turn all tvs off"), menu: menu),
+            .submit(VoiceSubmission(text: "turn all tvs off", profile: nil))
+        )
+        let zone = try XCTUnwrap(
+            ApplianceCatalog.appliances(in: menu).first { $0.id == "climate/living-room" }
+        )
+        XCTAssertTrue(ApplianceCatalog.matchesSpoken(zone, "lounge"))
+        XCTAssertTrue(ApplianceCatalog.matchesSpoken(zone, "the living room"))
+        XCTAssertFalse(ApplianceCatalog.matchesSpoken(zone, "living"))
+    }
+
+    func testSiriSpeechUsesReadbackAndDoesNotApprove() throws {
+        let climate = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "complete",
+                extra: [
+                    "climate": [
+                        "zone": "living",
+                        "setpoint_celsius": 20,
+                        "reachable": true,
+                    ],
+                ]
+            ))
+        )
+        XCTAssertEqual(SiriSpeech(climate).dialog, "living 20°")
+        XCTAssertFalse(SiriSpeech(climate).opensApproval)
+        let chat = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(profile: "chat", status: "complete", reply: "The office is 20 degrees."))
+        )
+        XCTAssertEqual(SiriSpeech(chat).dialog, "The office is 20 degrees.")
+        let waiting = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "awaiting_approval",
+                extra: ["action_digest": "sha256:abc"]
+            ))
+        )
+        let approval = SiriSpeech(waiting)
+        XCTAssertEqual(approval.dialog, "That needs a decision on the phone.")
+        XCTAssertTrue(approval.opensApproval)
+        XCTAssertEqual(approval.turnID, "turn-1")
+        let fanout = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "failed",
+                extra: ["error_code": "fanout_needs_approval"]
+            ))
+        )
+        XCTAssertFalse(SiriSpeech(fanout).opensApproval)
+    }
+
+    func testSiriExchangePollsAQueuedTurn() async throws {
+        let queued = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(profile: "home-action", status: "queued"))
+        )
+        let done = try JSON.decoder.decode(
+            VoiceTurnReceipt.self,
+            from: jsonData(receipt(
+                profile: "home-action",
+                status: "complete",
+                extra: [
+                    "climate": [
+                        "zone": "living",
+                        "setpoint_celsius": 20,
+                        "reachable": true,
+                    ],
+                ]
+            ))
+        )
+        var refreshes = 0
+        let speech = await SiriExchange.complete(
+            submission: VoiceSubmission(text: "heat living room", profile: nil),
+            submit: { text, profile in
+                XCTAssertEqual(text, "heat living room")
+                XCTAssertNil(profile)
+                return queued
+            },
+            refresh: { id in
+                refreshes += 1
+                XCTAssertEqual(id, "turn-1")
+                return done
+            },
+            pause: {}
+        )
+        XCTAssertEqual(refreshes, 1)
+        XCTAssertEqual(speech.dialog, "living 20°")
+        XCTAssertFalse(speech.opensApproval)
+    }
+
+    private func siriMenu() -> [String: Any] {
+        [
+            "slots": [
+                [
+                    "id": "climate",
+                    "install_enabled": true,
+                    "devices": [
+                        ["id": "living-room", "kind": "zone", "aliases": ["lounge"]],
+                    ],
+                ],
+                [
+                    "id": "tv",
+                    "install_enabled": true,
+                    "devices": [
+                        ["id": "lounge", "kind": "set"],
+                    ],
+                ],
+            ],
+        ]
+    }
+
     private func mirrorContains(_ value: Any, needle: String) -> Bool {
         if let text = value as? String { return text.contains(needle) }
         let mirror = Mirror(reflecting: value)
