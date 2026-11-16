@@ -43,6 +43,8 @@ public final class WatchSession: ObservableObject {
     @Published public private(set) var replyText: String?
     @Published public private(set) var pendingTurnID: String?
     @Published public private(set) var voiceInFlight = false
+    /// Push to talk and device buttons. A background status read leaves this false.
+    @Published public private(set) var showsTalkActivity = false
     @Published public private(set) var deciding = false
     @Published public private(set) var needsEnrollment = false
 
@@ -152,7 +154,11 @@ public final class WatchSession: ObservableObject {
             return nil
         }
         voiceInFlight = true
-        defer { voiceInFlight = false }
+        showsTalkActivity = true
+        defer {
+            voiceInFlight = false
+            showsTalkActivity = false
+        }
         do {
             let receipt = try await api.submitVoiceTurn(text: trimmed, profile: .homeAction)
             apply(receipt)
@@ -163,6 +169,38 @@ public final class WatchSession: ObservableObject {
         } catch {
             apply(.unreachable)
             return nil
+        }
+    }
+
+    /// Status read for the device list. It does not replace the talk reply or the pending turn.
+    public func readHomeAction(_ text: String) async -> Result<VoiceTurnReceipt, WatchFailure> {
+        guard !voiceInFlight else { return .failure(.transport(correlationID: nil)) }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .failure(.validation(correlationID: nil)) }
+        if capabilities?.allows(.homeAction) == false {
+            return .failure(.forbidden(detail: "", correlationID: nil))
+        }
+        voiceInFlight = true
+        defer { voiceInFlight = false }
+        do {
+            return .success(try await api.submitVoiceTurn(text: trimmed, profile: .homeAction))
+        } catch let failure as WatchFailure {
+            recordEnrollment(failure)
+            return .failure(failure)
+        } catch {
+            return .failure(.unreachable)
+        }
+    }
+
+    /// Follow-up read for a status turn. Same silence toward the talk screen.
+    public func readVoice(_ id: String) async -> Result<VoiceTurnReceipt, WatchFailure> {
+        do {
+            return .success(try await api.voiceTurn(id: id))
+        } catch let failure as WatchFailure {
+            recordEnrollment(failure)
+            return .failure(failure)
+        } catch {
+            return .failure(.unreachable)
         }
     }
 
@@ -226,7 +264,11 @@ public final class WatchSession: ObservableObject {
             return
         }
         voiceInFlight = true
-        defer { voiceInFlight = false }
+        showsTalkActivity = true
+        defer {
+            voiceInFlight = false
+            showsTalkActivity = false
+        }
         do {
             let receipt = try await api.submitVoiceTurn(text: trimmed, profile: profile)
             apply(receipt)
@@ -312,5 +354,12 @@ public final class WatchSession: ObservableObject {
         if failure.isUnauthorized {
             pendingTurnID = nil
         }
+    }
+
+    private func recordEnrollment(_ failure: WatchFailure) {
+        guard failure.isUnauthorized else { return }
+        needsEnrollment = true
+        notice = failure.screenText
+        pendingTurnID = nil
     }
 }

@@ -23,6 +23,9 @@ final class PhoneModel: ObservableObject {
     private var accessGroup = AccessGroup.resolved()
     private var fadeTask: Task<Void, Never>?
     private var houseGeneration = 0
+    private var startupTask: Task<Void, Never>?
+    private var applianceSweep: Task<Void, Never>?
+    private var appliancesLoadedAt: Date?
 
     var groupReady: Bool { accessGroup != nil }
     var showsGlobe: Bool { session != nil && session?.needsEnrollment != true }
@@ -54,7 +57,8 @@ final class PhoneModel: ObservableObject {
                     also: enrollment.alternates
                 )
             )
-            Task { await checkExisting() }
+            appliances = ApplianceCache.load()
+            startupTask = Task { await checkExisting() }
         } catch let error as KeychainError {
             status = error.screenText
         } catch {
@@ -100,6 +104,10 @@ final class PhoneModel: ObservableObject {
             let next = WatchSession(
                 api: liveAPI(issued.endpoint, issued.pinnedCertificate, accessGroup, also: alternates)
             )
+            ApplianceCache.clear()
+            appliances = []
+            appliancesReady = false
+            appliancesLoadedAt = nil
             session = next
             await next.checkCapabilities()
             rememberReach(next)
@@ -110,6 +118,7 @@ final class PhoneModel: ObservableObject {
                 return
             }
             status = ""
+            warmAppliances()
         } catch let error as EdgeUsernameError {
             status = error.screenText
         } catch let error as EndpointError {
@@ -129,6 +138,7 @@ final class PhoneModel: ObservableObject {
     func send(_ spoken: String) async {
         let generation = nextHouseGeneration()
         checkingAppliances = false
+        appliancesLoadedAt = nil
         await waitUntilVoiceIdle(generation)
         guard current(generation) else { return }
         guard let session, showsGlobe else { return }
@@ -172,18 +182,32 @@ final class PhoneModel: ObservableObject {
     }
 
     func refreshIfNeeded() async {
+        if let startupTask {
+            await startupTask.value
+            self.startupTask = nil
+        }
         guard session != nil, session?.principalMatches != true else { return }
         await checkExisting()
     }
 
-    func refreshAppliances() async {
-        let generation = nextHouseGeneration()
-        await reloadAppliances(generation)
+    /// Opens the device list. A sweep that is already running, or one that just finished, stays put.
+    func showAppliances() async {
+        if checkingAppliances {
+            await applianceSweep?.value
+            return
+        }
+        if appliancesReady, let appliancesLoadedAt, Date().timeIntervalSince(appliancesLoadedAt) < 30 {
+            return
+        }
+        await refreshAppliances()
     }
 
-    func stopApplianceChecks() {
-        houseGeneration += 1
-        checkingAppliances = false
+    func refreshAppliances() async {
+        let generation = nextHouseGeneration()
+        checkingAppliances = true
+        let task = Task { await reloadAppliances(generation) }
+        applianceSweep = task
+        await task.value
     }
 
     func control(_ verb: ApplianceVerb, _ card: ApplianceCard) {
@@ -202,7 +226,21 @@ final class PhoneModel: ObservableObject {
         if session.needsEnrollment {
             forgetSession()
             status = session.notice
+            return
         }
+        guard session.principalMatches else { return }
+        warmAppliances()
+    }
+
+    /// Starts the status sweep while the globe is still on screen.
+    private func warmAppliances() {
+        guard showsGlobe, !checkingAppliances else { return }
+        if appliancesReady, let appliancesLoadedAt, Date().timeIntervalSince(appliancesLoadedAt) < 30 {
+            return
+        }
+        checkingAppliances = true
+        let generation = nextHouseGeneration()
+        applianceSweep = Task { await reloadAppliances(generation) }
     }
 
     private func rememberReach(_ session: WatchSession) {
@@ -236,12 +274,19 @@ final class PhoneModel: ObservableObject {
     }
 
     private func reloadAppliances(_ generation: Int) async {
-        guard let session, showsGlobe else { return }
+        guard let session, showsGlobe, current(generation) else {
+            if current(generation) { checkingAppliances = false }
+            return
+        }
         checkingAppliances = true
         defer {
             if current(generation) {
                 checkingAppliances = false
                 appliancesReady = true
+                if !session.unreachable {
+                    appliancesLoadedAt = Date()
+                }
+                ApplianceCache.save(appliances)
             }
         }
         if session.capabilities == nil {
@@ -292,7 +337,7 @@ final class PhoneModel: ObservableObject {
     private func probe(_ appliance: BoundAppliance, _ generation: Int) async {
         guard let phrase = ApplianceCatalog.phrase(appliance, .read) else { return }
         markChecking(appliance.id, generation)
-        await runTurn(phrase, appliance: appliance, generation: generation)
+        await runTurn(phrase, appliance: appliance, generation: generation, quiet: true)
     }
 
     private func command(_ verb: ApplianceVerb, _ card: ApplianceCard, _ generation: Int) async {
@@ -301,14 +346,26 @@ final class PhoneModel: ObservableObject {
         }
         guard let session, showsGlobe, session.showsHomeAction else { return }
         guard let phrase = ApplianceCatalog.phrase(card.appliance, verb) else { return }
-        await runTurn(phrase, appliance: card.appliance, generation: generation)
+        await runTurn(phrase, appliance: card.appliance, generation: generation, quiet: false)
     }
 
-    private func runTurn(_ phrase: String, appliance: BoundAppliance, generation: Int) async {
+    private func runTurn(_ phrase: String, appliance: BoundAppliance, generation: Int, quiet: Bool) async {
         guard let session else { return }
         await waitUntilVoiceIdle(generation)
         guard current(generation) else { return }
-        guard let submitted = await session.submitHomeAction(phrase) else {
+        let submitted: VoiceTurnReceipt
+        if quiet {
+            switch await session.readHomeAction(phrase) {
+            case .success(let receipt):
+                submitted = receipt
+            case .failure(let failure):
+                guard current(generation) else { return }
+                noteProbe(failure)
+                return
+            }
+        } else if let receipt = await session.submitHomeAction(phrase) {
+            submitted = receipt
+        } else {
             guard current(generation) else { return }
             if session.unreachable {
                 applianceNotice = session.notice
@@ -320,11 +377,16 @@ final class PhoneModel: ObservableObject {
         }
         var receipt = submitted
         if receipt.status == "queued" || receipt.status == "running" {
-            guard let finished = await pollAppliance(session, receipt.turnID, generation) else {
+            let polled = await pollAppliance(session, receipt.turnID, generation, quiet: quiet)
+            guard let finished = polled.receipt else {
                 guard current(generation) else { return }
-                if session.unreachable {
-                    applianceNotice = session.notice
-                    apply(ApplianceSight(link: .offline, detail: "Offline"), to: appliance.id)
+                if let failure = polled.failure {
+                    if quiet {
+                        noteProbe(failure, only: appliance.id)
+                    } else if session.unreachable {
+                        applianceNotice = session.notice
+                        apply(ApplianceSight(link: .offline, detail: "Offline"), to: appliance.id)
+                    }
                 }
                 return
             }
@@ -343,9 +405,9 @@ final class PhoneModel: ObservableObject {
         apply(sight, to: appliance.id)
         if receipt.status == "failed" || receipt.status == "awaiting_approval" {
             applianceNotice = sight.detail
-        } else if session.unreachable {
+        } else if !quiet && session.unreachable {
             applianceNotice = session.notice
-        } else {
+        } else if quiet || !session.unreachable {
             applianceNotice = ""
         }
     }
@@ -353,21 +415,51 @@ final class PhoneModel: ObservableObject {
     private func pollAppliance(
         _ session: WatchSession,
         _ id: String,
-        _ generation: Int
-    ) async -> VoiceTurnReceipt? {
+        _ generation: Int,
+        quiet: Bool
+    ) async -> (receipt: VoiceTurnReceipt?, failure: WatchFailure?) {
         var latest: VoiceTurnReceipt?
         var remaining = 40
+        var pause: UInt64 = 200_000_000
         while remaining > 0 && current(generation) {
             remaining -= 1
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard current(generation) else { return latest }
-            guard let receipt = await session.pollVoice(id: id) else { return latest }
-            latest = receipt
-            if receipt.status != "queued" && receipt.status != "running" {
-                return receipt
+            try? await Task.sleep(nanoseconds: pause)
+            if pause < 500_000_000 {
+                pause += 100_000_000
+            }
+            guard current(generation) else { return (latest, nil) }
+            if quiet {
+                switch await session.readVoice(id) {
+                case .success(let receipt):
+                    latest = receipt
+                case .failure(let failure):
+                    return (latest, failure)
+                }
+            } else if let receipt = await session.pollVoice(id: id) {
+                latest = receipt
+            } else {
+                return (latest, session.unreachable ? .unreachable : nil)
+            }
+            if let latest, latest.status != "queued", latest.status != "running" {
+                return (latest, nil)
             }
         }
-        return latest
+        return (latest, nil)
+    }
+
+    private func noteProbe(_ failure: WatchFailure, only id: String? = nil) {
+        applianceNotice = failure.screenText
+        if failure.isUnreachable {
+            if let id {
+                apply(ApplianceSight(link: .offline, detail: "Offline"), to: id)
+            } else {
+                markOffline()
+            }
+        }
+        guard failure.isUnauthorized else { return }
+        let note = failure.screenText
+        forgetSession()
+        status = note
     }
 
     private func waitUntilVoiceIdle(_ generation: Int) async {
@@ -435,6 +527,10 @@ final class PhoneModel: ObservableObject {
             WatchKeychain.clear(accessGroup: accessGroup)
         }
         session = nil
+        appliances = []
+        appliancesReady = false
+        appliancesLoadedAt = nil
+        ApplianceCache.clear()
         Task { await discoverHost() }
     }
 
@@ -459,4 +555,70 @@ struct ApplianceCard: Identifiable, Equatable {
     var detail: String
 
     var id: String { appliance.id }
+}
+
+private enum ApplianceCache {
+    private static let key = "two.phone.appliance-snapshot"
+
+    private struct Row: Codable {
+        var slot: String
+        var deviceID: String
+        var aliases: [String]
+        var link: String
+        var detail: String
+    }
+
+    static func load() -> [ApplianceCard] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let rows = try? JSONDecoder().decode([Row].self, from: data) else {
+            return []
+        }
+        return rows.compactMap { row in
+            guard !row.slot.isEmpty, !row.deviceID.isEmpty else { return nil }
+            return ApplianceCard(
+                appliance: BoundAppliance(slot: row.slot, deviceID: row.deviceID, aliases: row.aliases),
+                link: link(row.link),
+                detail: row.detail
+            )
+        }
+    }
+
+    static func save(_ cards: [ApplianceCard]) {
+        if cards.isEmpty {
+            clear()
+            return
+        }
+        let rows = cards.compactMap { card -> Row? in
+            if card.detail == "Checking" || card.detail == "Still waiting." { return nil }
+            return Row(
+                slot: card.appliance.slot,
+                deviceID: card.appliance.deviceID,
+                aliases: card.appliance.aliases,
+                link: stored(card.link),
+                detail: card.detail
+            )
+        }
+        guard !rows.isEmpty, let data = try? JSONEncoder().encode(rows) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    private static func stored(_ link: ApplianceLink) -> String {
+        switch link {
+        case .online: "online"
+        case .offline: "offline"
+        case .unknown: "unknown"
+        }
+    }
+
+    private static func link(_ stored: String) -> ApplianceLink {
+        switch stored {
+        case "online": .online
+        case "offline": .offline
+        default: .unknown
+        }
+    }
 }

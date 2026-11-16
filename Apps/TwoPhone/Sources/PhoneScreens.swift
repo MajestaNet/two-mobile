@@ -59,9 +59,7 @@ struct PhoneRootView: View {
         .overlay(alignment: .bottom) { voiceDecision }
         .onChange(of: page) { _, next in
             if next == .devices {
-                Task { await model.refreshAppliances() }
-            } else {
-                model.stopApplianceChecks()
+                Task { await model.showAppliances() }
             }
         }
     }
@@ -221,14 +219,14 @@ struct GlobeView: View {
     private var globeActivity: GoldGlobeActivity {
         GoldGlobeActivity.talk(
             holding: speech.holding,
-            sending: model.session?.voiceInFlight == true,
+            sending: model.session?.showsTalkActivity == true,
             available: model.session?.principalMatches == true && speech.unavailableReason == nil
         )
     }
 
     private var canHold: Bool {
         model.session?.principalMatches == true
-            && model.session?.voiceInFlight != true
+            && model.session?.showsTalkActivity != true
             && speech.unavailableReason == nil
     }
 

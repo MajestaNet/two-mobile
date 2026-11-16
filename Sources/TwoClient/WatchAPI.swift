@@ -131,7 +131,30 @@ final class EdgeSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDel
 }
 
 public final class WatchAPI {
+    private struct Attempt: Sendable {
+        var data: Data
+        var status: Int
+        var headers: [String: String]
+        var url: URL
+        var base: URL
+
+        var httpResponse: HTTPURLResponse {
+            HTTPURLResponse(
+                url: url,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+            ) ?? HTTPURLResponse(
+                url: url,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+        }
+    }
+
     private var baseURLs: [URL]
+    private let urlsLock = NSLock()
     private let session: URLSession
     private let delegateRetainer: EdgeSessionDelegate?
 
@@ -172,9 +195,16 @@ public final class WatchAPI {
     }
 
     public func replace(endpoints: [EdgeEndpoint]) {
-        let urls = endpoints.map(\.baseURL)
-        if !urls.isEmpty {
-            baseURLs = urls
+        let incoming = endpoints.map(\.baseURL)
+        guard !incoming.isEmpty else { return }
+        urlsLock.lock()
+        defer { urlsLock.unlock() }
+        // Keep the host that just answered, even when the new list prefers another address.
+        if let preferred = baseURLs.first,
+           let kept = incoming.first(where: { Self.sameEndpoint($0, preferred) }) {
+            baseURLs = [kept] + incoming.filter { !Self.sameEndpoint($0, kept) }
+        } else {
+            baseURLs = incoming
         }
     }
 
@@ -254,25 +284,93 @@ public final class WatchAPI {
         }
     }
 
+    /// Reads ask every saved host together. The first answer is used.
+    /// A voice turn tries one host at a time so a command is not sent twice.
     private func perform(_ method: String, _ path: String, json: Data?) async throws -> (Data, URLResponse) {
         try rejectTaskSubmit(method: method, path: path)
-        let urls = baseURLs
+        let urls = copyBaseURLs()
+        if method == "GET", urls.count > 1 {
+            return try await race(method, path, json: json, urls: urls)
+        }
+        return try await sequence(method, path, json: json, urls: urls)
+    }
+
+    private func race(
+        _ method: String,
+        _ path: String,
+        json: Data?,
+        urls: [URL]
+    ) async throws -> (Data, URLResponse) {
+        let session = self.session
+        let requests = urls.map { base in
+            (base, makeRequest(method, path, json: json, base: base, timeout: 15))
+        }
+        return try await withThrowingTaskGroup(of: Attempt.self) { group in
+            for (base, request) in requests {
+                group.addTask {
+                    let (data, response) = try await session.data(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw URLError(.badServerResponse)
+                    }
+                    var headers: [String: String] = [:]
+                    for (key, value) in http.allHeaderFields {
+                        guard let name = key as? String else { continue }
+                        headers[name] = value as? String ?? "\(value)"
+                    }
+                    return Attempt(
+                        data: data,
+                        status: http.statusCode,
+                        headers: headers,
+                        url: http.url ?? request.url ?? base,
+                        base: base
+                    )
+                }
+            }
+            var lastError: URLError?
+            var pending = requests.count
+            while pending > 0 {
+                pending -= 1
+                do {
+                    guard let attempt = try await group.next() else { break }
+                    group.cancelAll()
+                    self.promote(attempt.base)
+                    return (attempt.data, attempt.httpResponse)
+                } catch let error as URLError {
+                    lastError = error
+                } catch is CancellationError {
+                    group.cancelAll()
+                    throw CancellationError()
+                } catch {
+                    lastError = URLError(.unknown)
+                }
+            }
+            group.cancelAll()
+            if let lastError {
+                throw self.failure(for: lastError)
+            }
+            throw WatchFailure.transport(correlationID: nil)
+        }
+    }
+
+    private func sequence(
+        _ method: String,
+        _ path: String,
+        json: Data?,
+        urls: [URL]
+    ) async throws -> (Data, URLResponse) {
         var lastError: URLError?
         for (index, base) in urls.enumerated() {
-            var request = URLRequest(url: url(base, path))
-            request.httpMethod = method
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.timeoutInterval = urls.count > 1 ? 6 : 15
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            if let json {
-                request.httpBody = json
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            }
-            if let bearer = DeferredBearer.headerValue(), !bearer.isEmpty {
-                request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-            }
+            let request = makeRequest(
+                method,
+                path,
+                json: json,
+                base: base,
+                timeout: urls.count > 1 ? 6 : 15
+            )
             do {
-                return try await session.data(for: request)
+                let result = try await session.data(for: request)
+                promote(base)
+                return result
             } catch let error as URLError {
                 lastError = error
                 if index == urls.count - 1 {
@@ -290,6 +388,46 @@ public final class WatchAPI {
             throw failure(for: lastError)
         }
         throw WatchFailure.transport(correlationID: nil)
+    }
+
+    private func makeRequest(
+        _ method: String,
+        _ path: String,
+        json: Data?,
+        base: URL,
+        timeout: TimeInterval
+    ) -> URLRequest {
+        var request = URLRequest(url: url(base, path))
+        request.httpMethod = method
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let json {
+            request.httpBody = json
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if let bearer = DeferredBearer.headerValue(), !bearer.isEmpty {
+            request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
+    private func copyBaseURLs() -> [URL] {
+        urlsLock.lock()
+        defer { urlsLock.unlock() }
+        return baseURLs
+    }
+
+    private func promote(_ url: URL) {
+        urlsLock.lock()
+        defer { urlsLock.unlock() }
+        guard let index = baseURLs.firstIndex(where: { Self.sameEndpoint($0, url) }), index > 0 else { return }
+        let preferred = baseURLs.remove(at: index)
+        baseURLs.insert(preferred, at: 0)
+    }
+
+    private static func sameEndpoint(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme == rhs.scheme && lhs.host == rhs.host && lhs.port == rhs.port
     }
 
     private func failure(for error: URLError) -> WatchFailure {

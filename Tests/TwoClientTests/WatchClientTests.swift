@@ -346,7 +346,7 @@ final class WatchClientTests: XCTestCase {
         let caps = try await api.capabilities()
         XCTAssertEqual(caps.principal, "client:watch")
         XCTAssertEqual(caps.edgeHosts, ["100.64.1.5", "10.1.1.5"])
-        XCTAssertEqual(FixtureURLProtocol.requests.map { $0.0.url?.host }, ["100.64.1.5", "10.1.1.5"])
+        XCTAssertTrue(FixtureURLProtocol.requests.contains { $0.0.url?.host == "10.1.1.5" })
     }
 
     func testCertificateRetryFailureFallsThroughToTheHomeAddress() async throws {
@@ -386,7 +386,83 @@ final class WatchClientTests: XCTestCase {
         )
         let caps = try await api.capabilities()
         XCTAssertEqual(caps.principal, "client:watch")
-        XCTAssertEqual(FixtureURLProtocol.requests.map { $0.0.url?.host }, ["100.64.1.5", "10.1.1.5"])
+        XCTAssertTrue(FixtureURLProtocol.requests.contains { $0.0.url?.host == "10.1.1.5" })
+    }
+
+    func testVoiceSubmitTriesTheNextHostOnce() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FixtureURLProtocol.self]
+        configuration.waitsForConnectivity = false
+        let session = URLSession(configuration: configuration)
+        FixtureURLProtocol.reset { request in
+            if request.url?.host == "100.64.1.5" {
+                return FixtureURLProtocol.Response(
+                    status: 0,
+                    body: Data(),
+                    error: URLError(.cannotConnectToHost)
+                )
+            }
+            return self.ok(self.receipt(profile: "home-action", status: "queued"))
+        }
+        let api = WatchAPI(
+            baseURLs: [
+                URL(string: "https://100.64.1.5:8443")!,
+                URL(string: "https://10.1.1.5:8443")!,
+            ],
+            session: session
+        )
+        let receipt = try await api.submitVoiceTurn(text: "lounge tv status", profile: .homeAction)
+        XCTAssertEqual(receipt.turnID, "turn-1")
+        let posts = FixtureURLProtocol.requests.filter { $0.0.httpMethod == "POST" }
+        XCTAssertEqual(posts.map { $0.0.url?.host }, ["100.64.1.5", "10.1.1.5"])
+    }
+
+    func testWorkingHostStaysFirstAfterTheAddressListIsReplaced() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FixtureURLProtocol.self]
+        configuration.waitsForConnectivity = false
+        let session = URLSession(configuration: configuration)
+        FixtureURLProtocol.reset { request in
+            if request.url?.host == "100.64.1.5" {
+                return FixtureURLProtocol.Response(
+                    status: 0,
+                    body: Data(),
+                    error: URLError(.cannotConnectToHost)
+                )
+            }
+            if request.url?.path == "/v1/voice/turns" {
+                return self.ok(self.receipt(profile: "home-action", status: "queued"))
+            }
+            return self.ok([
+                "schema_version": 12,
+                "api_versions": ["v1"],
+                "principal": "client:watch",
+                "scopes": ["system:read"],
+                "allowed_harness_profiles": ["chat", "home-action"],
+                "edge_hosts": ["100.64.1.5", "10.1.1.5"],
+                "auth": [
+                    "method": "edge_client",
+                    "oidc_available": false,
+                    "mobile_ready": false,
+                    "edge_available": true,
+                ],
+            ])
+        }
+        let api = WatchAPI(
+            baseURLs: [
+                URL(string: "https://100.64.1.5:8443")!,
+                URL(string: "https://10.1.1.5:8443")!,
+            ],
+            session: session
+        )
+        _ = try await api.capabilities()
+        api.replace(endpoints: [
+            try EdgeEndpoint(host: "100.64.1.5", port: 8443),
+            try EdgeEndpoint(host: "10.1.1.5", port: 8443),
+        ])
+        _ = try await api.submitVoiceTurn(text: "lounge tv status", profile: .homeAction)
+        let posts = FixtureURLProtocol.requests.filter { $0.0.httpMethod == "POST" }
+        XCTAssertEqual(posts.map { $0.0.url?.host }, ["10.1.1.5"])
     }
 
     func testUnreachableURLError() async throws {
@@ -879,6 +955,36 @@ final class WatchSessionTests: XCTestCase {
         XCTAssertEqual(body?["profile"] as? String, "home-action")
         XCTAssertEqual(body?["text"] as? String, "heat living room")
         XCTAssertFalse(session.confirmationTranscript.contains("living"))
+    }
+
+    func testStatusReadLeavesTheTalkReplyAlone() async throws {
+        let api = try makeAPI { request in
+            if request.url?.path == "/v1/voice/turns" {
+                return self.ok([
+                    "turn_id": "turn-9",
+                    "profile": "home-action",
+                    "status": "complete",
+                    "reply": "The office is 20 degrees.",
+                    "cursor": "MQ",
+                    "revision": 1,
+                    "fanout": [] as [String],
+                    "route_slots": [] as [String],
+                ])
+            }
+            return self.capabilities()
+        }
+        let session = WatchSession(api: api)
+        let result = await session.readHomeAction("living room ac temperature")
+        guard case .success(let receipt) = result else {
+            return XCTFail("expected a status receipt")
+        }
+        XCTAssertEqual(receipt.turnID, "turn-9")
+        XCTAssertEqual(receipt.reply, "The office is 20 degrees.")
+        XCTAssertNil(session.replyText)
+        XCTAssertNil(session.pendingTurnID)
+        XCTAssertFalse(session.showsTalkActivity)
+        XCTAssertFalse(session.voiceInFlight)
+        XCTAssertEqual(session.confirmationTranscript, "")
     }
 
     func testStaleDigestReloadsOnceAndDoesNotResend() async throws {
