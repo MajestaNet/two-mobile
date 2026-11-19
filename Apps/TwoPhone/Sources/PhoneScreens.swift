@@ -117,7 +117,7 @@ struct AuthView: View {
                 .padding(12)
                 .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             if model.discoveryFailed || !model.host.isEmpty {
-                TextField("Private LAN host", text: $model.host)
+                TextField("Home or Tailscale address", text: $model.host)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
@@ -305,6 +305,15 @@ struct DevicesPage: View {
                 }
                 .refreshable { await model.refreshAppliances() }
             }
+            Spacer(minLength: 12)
+            Button("Enroll again") {
+                model.reenroll()
+            }
+            .font(.caption)
+            .foregroundStyle(gold)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 8)
+            .accessibilityHint("Clears this phone and shows the username screen")
         }
         .padding(.horizontal, 22)
         .padding(.top, 12)

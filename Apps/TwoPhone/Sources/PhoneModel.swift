@@ -66,6 +66,15 @@ final class PhoneModel: ObservableObject {
         }
     }
 
+    func reenroll() {
+        host = ""
+        username = ""
+        status = ""
+        discoveryFailed = false
+        authenticating = false
+        forgetSession()
+    }
+
     func enroll() async {
         guard let accessGroup else {
             status = "Select a Development Team so the keychain access group can be signed."
@@ -81,7 +90,7 @@ final class PhoneModel: ObservableObject {
             }
             if enrollHost.isEmpty {
                 discoveryFailed = true
-                status = "Enter the mini's private host."
+                status = "Enter the home or Tailscale address."
                 return
             }
             let key = try PhoneIdentityKey.make(accessGroup: accessGroup)
